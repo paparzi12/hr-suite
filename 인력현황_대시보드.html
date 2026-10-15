@@ -1,0 +1,1306 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>인력현황 대시보드</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{
+  --bg:#eef2f4; --surface:#ffffff; --surface2:#f7fafb;
+  --ink:#17242e; --ink2:#5b6d7a; --ink3:#8a99a3; --line:#dfe6ea; --hairline:#eaeff2;
+  --side:#0f2534; --side2:#163a52; --side-ink:#c6d5dd; --side-dim:#7d94a2;
+  --accent:#0b7285; --accent-deep:#09596a; --accent-soft:#e3eff2;
+  --pos:#1f7a4d; --neg:#b4434a;
+  --st-good:#0ca30c; --st-warn:#fab219; --st-serious:#ec835a;
+  --radius:8px;
+  --shadow:0 1px 2px rgba(15,37,52,.05), 0 4px 14px rgba(15,37,52,.05);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+[hidden]{display:none!important}
+html{font-size:15px}
+body{
+  background:var(--bg); color:var(--ink);
+  font-family:'Pretendard',-apple-system,BlinkMacSystemFont,'Malgun Gothic','Apple SD Gothic Neo',sans-serif;
+  line-height:1.55;
+}
+button{font-family:inherit}
+
+/* ═════════ 레이아웃 셸 ═════════ */
+.shell{display:flex;min-height:100vh}
+.side{
+  width:230px;flex:none;background:var(--side);color:var(--side-ink);
+  display:flex;flex-direction:column;padding:22px 0 18px;position:sticky;top:0;height:100vh;
+}
+.logo{padding:0 22px 20px;border-bottom:1px solid rgba(255,255,255,.08)}
+.logo .co{display:flex;align-items:center;gap:10px}
+.logo .sq{
+  width:30px;height:30px;border-radius:7px;flex:none;
+  background:linear-gradient(135deg,#0f8ba1,#0b5f70);
+  display:flex;align-items:center;justify-content:center;color:#fff;font-weight:800;font-size:.95rem;
+}
+.logo b{color:#fff;font-size:1.02rem;letter-spacing:-.01em}
+.logo .tag{font-size:.74rem;color:var(--side-dim);margin-top:2px}
+.nav{padding:14px 12px;display:flex;flex-direction:column;gap:2px}
+.navbtn{
+  display:flex;align-items:center;gap:10px;width:100%;text-align:left;
+  background:none;border:0;color:var(--side-ink);padding:10px 12px;border-radius:7px;
+  font-size:.92rem;font-weight:600;cursor:pointer;position:relative;
+}
+.navbtn svg{width:17px;height:17px;flex:none;opacity:.75}
+.navbtn:hover{background:rgba(255,255,255,.06)}
+.navbtn[aria-selected="true"]{background:var(--side2);color:#fff}
+.navbtn[aria-selected="true"]::before{
+  content:'';position:absolute;left:0;top:9px;bottom:9px;width:3px;border-radius:3px;background:#2fa3ba;
+}
+.navbtn[aria-selected="true"] svg{opacity:1}
+.navbtn:focus-visible{outline:2px solid #2fa3ba;outline-offset:-2px}
+.side .sect{
+  margin:14px 22px 6px;font-size:.72rem;font-weight:700;color:var(--side-dim);
+  padding-top:14px;border-top:1px solid rgba(255,255,255,.08);
+}
+.dlist{padding:0 12px;display:flex;flex-direction:column;gap:1px}
+.dbtn{
+  display:block;width:100%;text-align:left;background:none;border:0;color:var(--side-dim);
+  padding:7px 12px;border-radius:6px;font-size:.84rem;font-weight:500;cursor:pointer;
+}
+.dbtn:hover{color:#fff;background:rgba(255,255,255,.06)}
+.side .foot{margin-top:auto;padding:14px 22px 0;font-size:.72rem;color:var(--side-dim);line-height:1.6}
+
+.mainwrap{flex:1;min-width:0;display:flex;flex-direction:column}
+.top{
+  background:var(--surface);border-bottom:1px solid var(--line);
+  padding:16px clamp(18px,3vw,32px);display:flex;align-items:center;gap:16px;flex-wrap:wrap;
+}
+.top h1{font-size:1.28rem;font-weight:800;letter-spacing:-.02em}
+.top .sub{font-size:.84rem;color:var(--ink2);margin-top:1px}
+.top .sp{flex:1}
+.asof{font-size:.84rem;color:var(--ink2);font-variant-numeric:tabular-nums}
+.btn{
+  appearance:none;border:1px solid var(--line);background:var(--surface);color:var(--ink);
+  padding:8px 14px;border-radius:7px;font-size:.88rem;font-weight:600;cursor:pointer;
+}
+.btn:hover{border-color:var(--accent);color:var(--accent-deep)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.primary:hover{background:var(--accent-deep)}
+.btn:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+main{padding:20px clamp(18px,3vw,32px) 48px;max-width:1240px;width:100%}
+
+/* ═════════ 안내 배너 ═════════ */
+.banner{
+  display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;
+  background:var(--accent-soft);border:1px solid #c4dde4;border-radius:var(--radius);
+  padding:10px 16px;margin-bottom:16px;font-size:.88rem;color:var(--accent-deep);
+}
+.banner[hidden]{display:none}
+
+/* ═════════ KPI ═════════ */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(176px,1fr));gap:12px}
+.kpi{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  padding:14px 16px 13px;box-shadow:var(--shadow);position:relative;overflow:hidden;
+}
+.kpi .l{font-size:.8rem;font-weight:600;color:var(--ink2)}
+.kpi .row{display:flex;align-items:flex-end;gap:8px;margin-top:5px}
+.kpi .v{font-size:1.7rem;font-weight:800;letter-spacing:-.02em;line-height:1.05}
+.kpi .v small{font-size:.86rem;font-weight:600;color:var(--ink2);margin-left:1px}
+.pill{
+  display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:99px;
+  font-size:.74rem;font-weight:700;margin-bottom:3px;white-space:nowrap;
+}
+.pill.up{background:#e4f1ea;color:var(--pos)}
+.pill.down{background:#f7e9ea;color:var(--neg)}
+.pill.flat{background:#eef2f4;color:var(--ink2)}
+.kpi .cap{font-size:.74rem;color:var(--ink3);margin-top:5px}
+.kpi .spark{position:absolute;right:10px;bottom:10px;width:84px;height:26px;opacity:.9}
+
+/* ═════════ 인사이트 ═════════ */
+.insight{
+  background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--accent);
+  border-radius:var(--radius);box-shadow:var(--shadow);
+  padding:13px 18px;margin-top:14px;
+}
+.insight h2{font-size:.88rem;font-weight:700;margin-bottom:7px}
+.insight h2 span{font-weight:500;font-size:.76rem;color:var(--ink3);margin-left:8px}
+.insight ul{list-style:none;display:grid;gap:5px}
+.insight li{font-size:.89rem;color:var(--ink);display:flex;align-items:baseline;gap:8px}
+.insight li::before{content:'';width:5px;height:5px;border-radius:50%;background:var(--accent);flex:none;transform:translateY(-2px)}
+.lv{display:inline-flex;align-items:center;gap:5px;font-weight:700;font-size:.82rem}
+.lv i{width:8px;height:8px;border-radius:50%;flex:none}
+.lv.good i{background:var(--st-good)} .lv.warn i{background:var(--st-warn)} .lv.high i{background:var(--st-serious)}
+
+/* ═════════ 패널 ═════════ */
+.grid{display:grid;grid-template-columns:repeat(12,1fr);gap:14px;margin-top:14px}
+.panel{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:16px 18px;grid-column:span 4;min-width:0;
+}
+.panel.wide{grid-column:span 8}
+.panel-h{display:flex;align-items:baseline;gap:8px;margin-bottom:10px;flex-wrap:wrap}
+.panel-h h2{font-size:.95rem;font-weight:700}
+.panel-h .sub{font-size:.78rem;color:var(--ink3)}
+.chartbox{position:relative;height:238px}
+.trendline{position:relative;height:168px}
+.trendbars{position:relative;height:118px;margin-top:2px}
+.nodata{height:238px;display:flex;align-items:center;justify-content:center;color:var(--ink3);font-size:.86rem}
+@media (max-width:1000px){ .panel,.panel.wide{grid-column:1/-1} }
+
+/* 충원 현황 */
+.planrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.9rem}
+.planrow input[type=number]{
+  width:70px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;
+  font:inherit;font-variant-numeric:tabular-nums;text-align:right;
+}
+.progress{height:9px;background:#e7edf0;border-radius:99px;overflow:hidden;margin-top:14px}
+.progress i{display:block;height:100%;background:linear-gradient(90deg,#0f8ba1,var(--accent-deep));border-radius:99px;transition:width .4s}
+.planmeta{display:flex;justify-content:space-between;font-size:.82rem;color:var(--ink2);margin-top:7px;font-variant-numeric:tabular-nums}
+.planhint{font-size:.8rem;color:var(--ink3);margin-top:10px}
+
+/* 미니 리스트 (올해 입사자 · 최근 인사이동) */
+.minilist{margin-top:16px;border-top:1px solid var(--hairline);padding-top:12px}
+.minilist h3{font-size:.78rem;color:var(--ink3);font-weight:700;margin-bottom:6px}
+.mrow{display:flex;align-items:center;gap:8px;font-size:.85rem;padding:4px 0}
+.mrow .tag{font-size:.7rem;font-weight:800;padding:1.5px 8px;border-radius:99px;flex:none}
+.tag.in{background:#e4f1ea;color:var(--pos)}
+.tag.out{background:#f1f4f5;color:#7c8c96}
+.mrow b{font-weight:700}
+.mrow .sub2{color:var(--ink3);font-size:.78rem}
+.mrow .dt{margin-left:auto;color:var(--ink3);font-size:.78rem;font-variant-numeric:tabular-nums}
+.mrow.more{color:var(--ink3);font-size:.78rem}
+.movelist{min-height:120px}
+
+/* ═════════ 명부 ═════════ */
+.toolrow{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px;align-items:center}
+.toolrow input[type=search], .toolrow select{
+  padding:8px 11px;border:1px solid var(--line);border-radius:7px;font:inherit;background:var(--surface);font-size:.88rem;
+}
+.toolrow input[type=search]{min-width:200px;flex:1;max-width:300px}
+.count{font-size:.84rem;color:var(--ink2);margin-left:auto;font-variant-numeric:tabular-nums}
+.tablewrap{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);box-shadow:var(--shadow);overflow:auto;max-height:68vh}
+table.roster{width:100%;border-collapse:collapse;font-size:.87rem;min-width:940px}
+.roster thead th{
+  position:sticky;top:0;background:var(--surface2);border-bottom:1px solid var(--line);
+  text-align:left;padding:10px 14px;font-weight:700;font-size:.8rem;color:var(--ink2);white-space:nowrap;z-index:1;
+}
+.roster tbody td{padding:9px 14px;border-bottom:1px solid var(--hairline);white-space:nowrap;font-variant-numeric:tabular-nums;vertical-align:middle}
+.roster tbody tr:hover{background:#f6fafb}
+.roster tr.left td{color:#9aa7ae}
+.who{display:flex;align-items:center;gap:10px}
+.avt{
+  width:30px;height:30px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;
+  font-size:.8rem;font-weight:800;
+}
+tr.left .avt{filter:grayscale(1);opacity:.55}
+.who .nm{font-weight:700;color:var(--ink);line-height:1.2}
+tr.left .who .nm{color:#9aa7ae}
+.who .no{font-size:.74rem;color:var(--ink3)}
+.chip{display:inline-block;padding:2px 9px;border-radius:99px;font-size:.75rem;font-weight:700}
+.chip.on{background:#e4f1ea;color:var(--pos)}
+.chip.off{background:#f3f5f6;color:#8a99a3}
+.chip.prob{background:#f8f0dc;color:#9a7417}
+.rowbtn{border:0;background:none;color:var(--accent-deep);font-size:.81rem;font-weight:600;cursor:pointer;padding:2px 4px}
+.rowbtn.danger{color:var(--neg)}
+.rowbtn:hover{text-decoration:underline}
+.empty{padding:44px;text-align:center;color:var(--ink2);font-size:.92rem}
+
+/* ═════════ 보고서 ═════════ */
+.docwrap{max-width:860px}
+.doc{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:34px 40px 30px;
+}
+.doc-top{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;flex-wrap:wrap}
+.doc h2.title{font-size:1.35rem;font-weight:800;letter-spacing:-.01em}
+.doc .meta{font-size:.85rem;color:var(--ink2);margin-top:8px;line-height:1.7}
+.doc .meta b{color:var(--ink);font-weight:700}
+table.approve{border-collapse:collapse;flex:none}
+.approve th{border:1px solid #b9c5cc;background:var(--surface2);font-size:.74rem;font-weight:700;color:var(--ink2);padding:4px 0;width:66px}
+.approve td{border:1px solid #b9c5cc;height:56px}
+.doc hr{border:0;border-top:2px solid var(--ink);margin:18px 0 16px}
+table.sum{width:100%;border-collapse:collapse;font-size:.88rem;margin-bottom:22px}
+.sum th{background:var(--surface2);border:1px solid var(--line);padding:8px 12px;font-weight:700;font-size:.82rem;text-align:left;white-space:nowrap}
+.sum td{border:1px solid var(--line);padding:8px 12px;font-variant-numeric:tabular-nums}
+.sum td.v{font-weight:700;white-space:nowrap}
+.sum .note{color:var(--ink2);font-size:.82rem}
+.sec{margin-bottom:18px}
+.sec h3{font-size:.95rem;font-weight:800;margin-bottom:4px}
+.sec p.d{font-size:.8rem;color:var(--ink3);margin-bottom:8px}
+.sec textarea{
+  width:100%;min-height:104px;resize:vertical;padding:11px 13px;font:inherit;font-size:.9rem;
+  border:1px solid var(--line);border-radius:7px;line-height:1.65;background:var(--surface);
+}
+.sec .pmirror{display:none}
+.repfoot{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:18px}
+.repfoot .saved{font-size:.83rem;color:var(--ink2)}
+
+/* ═════════ 모달 ═════════ */
+.overlay{position:fixed;inset:0;background:rgba(13,28,38,.5);display:flex;align-items:center;justify-content:center;padding:16px;z-index:50}
+.overlay[hidden]{display:none}
+.modal{background:var(--surface);border-radius:10px;width:min(640px,100%);max-height:92vh;overflow:auto;padding:26px 28px}
+.modal h2{font-size:1.08rem;font-weight:800;margin-bottom:16px}
+.formgrid{display:grid;grid-template-columns:1fr 1fr;gap:13px}
+.formgrid .span2{grid-column:1/-1}
+.field label{display:block;font-size:.8rem;font-weight:700;margin-bottom:4px;color:var(--ink2)}
+.field label em{color:var(--neg);font-style:normal}
+.field input,.field select{
+  width:100%;padding:8px 11px;border:1px solid var(--line);border-radius:7px;font:inherit;background:var(--surface);
+}
+.field input:focus,.field select:focus,.sec textarea:focus,.toolrow input:focus,.toolrow select:focus{
+  outline:2px solid var(--accent);outline-offset:-1px;border-color:var(--accent);
+}
+.modalfoot{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+@media (max-width:560px){ .formgrid{grid-template-columns:1fr} }
+
+/* ═════════ 모바일 ═════════ */
+@media (max-width:920px){
+  .shell{flex-direction:column}
+  .side{width:100%;height:auto;position:static;padding:14px 0 10px}
+  .logo{padding:0 18px 12px}
+  .nav{flex-direction:row;padding:10px 12px 4px;overflow-x:auto}
+  .navbtn{white-space:nowrap}
+  .navbtn[aria-selected="true"]::before{left:10px;right:10px;top:auto;bottom:2px;width:auto;height:3px}
+  .side .sect{display:none}
+  .dlist{flex-direction:row;flex-wrap:wrap;gap:4px;padding:4px 12px 2px}
+  .dbtn{width:auto;border:1px solid rgba(255,255,255,.14);border-radius:99px;padding:5px 12px;font-size:.78rem}
+  .side .foot{display:none}
+  .doc{padding:22px 18px}
+}
+
+/* ═════════ 인쇄 ═════════ */
+@media print{
+  body{background:#fff}
+  .side,.top,.banner,.toolrow,.repfoot,.rowbtn{display:none!important}
+  main{padding:0;max-width:none}
+  .panel,.kpi,.insight,.tablewrap,.doc{box-shadow:none;border-color:#aaa;break-inside:avoid}
+  .doc{border:0;padding:0}
+  .sec textarea{display:none}
+  .sec .pmirror{
+    display:block;border:1px solid #bbb;border-radius:6px;padding:11px 13px;
+    font-size:.9rem;line-height:1.65;min-height:60px;white-space:pre-wrap;
+  }
+}
+</style>
+</head>
+<body>
+<div class="shell">
+
+  <!-- ═════════ 사이드바 ═════════ -->
+  <aside class="side">
+    <div class="logo">
+      <div class="co"><span class="sq">K</span><div><b>케이퓨얼셀</b><div class="tag">HR Analytics · 경영지원팀</div></div></div>
+    </div>
+    <nav class="nav" role="tablist">
+      <button class="navbtn" role="tab" aria-selected="true" data-view="dash">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="9" rx="1"/><rect x="14" y="3" width="7" height="5" rx="1"/><rect x="14" y="12" width="7" height="9" rx="1"/><rect x="3" y="16" width="7" height="5" rx="1"/></svg>
+        대시보드
+      </button>
+      <button class="navbtn" role="tab" aria-selected="false" data-view="roster">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9.5" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M15.5 3.13a4 4 0 0 1 0 7.75"/></svg>
+        직원 명부
+      </button>
+      <button class="navbtn" role="tab" aria-selected="false" data-view="report">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/><path d="M8 13h8M8 17h5"/></svg>
+        팀장 보고
+      </button>
+    </nav>
+    <div class="sect">데이터 관리</div>
+    <div class="dlist">
+      <button class="dbtn" id="btnUpload">명부 엑셀 업로드</button>
+      <button class="dbtn" id="btnTemplate">업로드 양식 받기</button>
+      <button class="dbtn" id="btnExport">명부 엑셀 다운로드</button>
+      <button class="dbtn" id="btnBackup">JSON 백업</button>
+      <button class="dbtn" id="btnRestore">JSON 복원</button>
+      <input type="file" id="fileInput" accept=".xlsx,.xls,.csv" hidden>
+      <input type="file" id="jsonInput" accept=".json" hidden>
+    </div>
+    <div class="foot">STEP 1 · 브라우저 저장(localStorage)<br>STEP 2 Firebase 연동 예정</div>
+  </aside>
+
+  <!-- ═════════ 메인 ═════════ -->
+  <div class="mainwrap">
+    <header class="top">
+      <div><h1 id="pageTitle">인력현황 대시보드</h1><div class="sub" id="pageSub">전사 인원 · 이직률 · 충원 현황</div></div>
+      <span class="sp"></span>
+      <span class="asof" id="asof"></span>
+      <button class="btn primary" id="btnAdd">직원 등록</button>
+    </header>
+
+    <main>
+      <div class="banner" id="sampleBanner" hidden>
+        <span>지금 보이는 숫자는 <b>샘플 데이터</b>입니다. 사이드바의 엑셀 업로드 또는 직원 등록으로 실제 명부로 교체하세요.</span>
+        <button class="btn" id="btnClearSample">샘플 데이터 비우기</button>
+      </div>
+
+      <!-- ───── 대시보드 ───── -->
+      <section id="view-dash">
+        <div class="kpis" id="kpiGrid"></div>
+
+        <div class="insight">
+          <h2>자동 분석 요약 <span>아래 지표 기준 자동 생성 — 팀장 보고 탭에 집계표로 반영됩니다</span></h2>
+          <ul id="insightList"></ul>
+        </div>
+
+        <div class="grid">
+          <div class="panel wide">
+            <div class="panel-h"><h2>월별 인원 추이</h2><span class="sub">최근 12개월 · 월말 재직 기준</span></div>
+            <div class="trendline"><canvas id="chHead"></canvas></div>
+            <div class="trendbars"><canvas id="chFlow"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><h2>연간 충원 현황</h2><span class="sub" id="planYearLabel"></span></div>
+            <div class="planrow">
+              충원계획 <input type="number" id="planCount" min="0" step="1"> 명
+              <button class="btn" id="btnPlanSave">저장</button>
+            </div>
+            <div class="progress"><i id="planBar" style="width:0%"></i></div>
+            <div class="planmeta"><span id="planHired"></span><span id="planRate"></span></div>
+            <p class="planhint" id="planHint"></p>
+            <div class="minilist"><h3>올해 입사자</h3><div id="hireList"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><h2>팀별 인원</h2><span class="sub">재직 기준</span></div>
+            <div class="chartbox"><canvas id="chTeam"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><h2>직급 분포</h2><span class="sub">재직 기준</span></div>
+            <div class="chartbox"><canvas id="chRank"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><h2>고용형태</h2><span class="sub">재직 기준</span></div>
+            <div class="chartbox"><canvas id="chType"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><h2>근속연수 분포</h2><span class="sub">재직 기준</span></div>
+            <div class="chartbox"><canvas id="chTenure"></canvas></div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><h2>퇴사 사유</h2><span class="sub">최근 12개월</span></div>
+            <div class="chartbox" id="exitBox"><canvas id="chExit"></canvas></div>
+            <div class="nodata" id="noExit" hidden>최근 12개월 퇴사자가 없습니다.</div>
+          </div>
+          <div class="panel">
+            <div class="panel-h"><h2>최근 인사이동</h2><span class="sub">입·퇴사 최근 6건</span></div>
+            <div class="movelist" id="moveList"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ───── 명부 ───── -->
+      <section id="view-roster" hidden>
+        <div class="toolrow">
+          <input type="search" id="q" placeholder="성명 · 사번 검색">
+          <select id="fTeam"></select>
+          <select id="fStatus">
+            <option value="">상태 전체</option><option value="재직">재직</option><option value="퇴사">퇴사</option>
+          </select>
+          <select id="fType">
+            <option value="">고용형태 전체</option><option>정규직</option><option>계약직</option><option>수습</option>
+          </select>
+          <span class="count" id="rosterCount"></span>
+        </div>
+        <div class="tablewrap">
+          <table class="roster">
+            <thead><tr>
+              <th>직원</th><th>소속</th><th>직급</th><th>직군</th><th>고용형태</th>
+              <th>입사일</th><th>근속</th><th>상태</th><th>관리</th>
+            </tr></thead>
+            <tbody id="rosterBody"></tbody>
+          </table>
+          <div class="empty" id="rosterEmpty" hidden>명부가 비어 있습니다. 사이드바의 <b>명부 엑셀 업로드</b> 또는 상단 <b>직원 등록</b>으로 시작하세요.</div>
+        </div>
+      </section>
+
+      <!-- ───── 팀장 보고 ───── -->
+      <section id="view-report" hidden>
+        <div class="docwrap">
+          <div class="doc">
+            <div class="doc-top">
+              <div>
+                <h2 class="title">인력현황 보고</h2>
+                <div class="meta">
+                  보고일자 : <b id="repDate"></b><br>
+                  작성부서 : <b>경영지원팀</b> &nbsp;·&nbsp; 수신 : <b>대표이사</b>
+                </div>
+              </div>
+              <table class="approve" aria-label="결재란">
+                <tr><th>작 성</th><th>검 토</th><th>승 인</th></tr>
+                <tr><td></td><td></td><td></td></tr>
+              </table>
+            </div>
+            <hr>
+            <table class="sum" id="sumTable">
+              <tr><th style="width:170px">구분</th><th style="width:170px">수치</th><th>비고</th></tr>
+            </table>
+
+            <div class="sec">
+              <h3>1. 인원 증감 분석</h3>
+              <p class="d">전월 대비 증감 사유, 팀별 변동, 조직개편 사항</p>
+              <textarea id="rep1" placeholder="예) 10월 재직 31명(+1). 생산팀 수습 1명 입사, 결원 없음."></textarea>
+              <div class="pmirror" id="pm1"></div>
+            </div>
+            <div class="sec">
+              <h3>2. 이직률 · 리스크 분석</h3>
+              <p class="d">최근 12개월 이직률, 조기퇴사, 이탈 징후 인원과 대응 방안</p>
+              <textarea id="rep2" placeholder="예) 연간 이직률 9.6%. 조기퇴사 비중이 높아 수습 온보딩 점검 필요."></textarea>
+              <div class="pmirror" id="pm2"></div>
+            </div>
+            <div class="sec">
+              <h3>3. 충원 계획</h3>
+              <p class="d">진행 중 채용, 충원 우선순위, 일정·예산 이슈</p>
+              <textarea id="rep3" placeholder="예) 스택개발팀 선임 1명 채용 진행 중(서류 12명). 11월 입사 목표."></textarea>
+              <div class="pmirror" id="pm3"></div>
+            </div>
+          </div>
+          <div class="repfoot">
+            <button class="btn primary" id="btnRepSave">보고 내용 저장</button>
+            <button class="btn" id="btnPrint">인쇄</button>
+            <span class="saved" id="repSaved"></span>
+          </div>
+        </div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<!-- ═════════ 직원 등록/수정 모달 ═════════ -->
+<div class="overlay" id="overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <h2 id="modalTitle">직원 등록</h2>
+    <form id="empForm">
+      <div class="formgrid">
+        <div class="field"><label>사번</label><input id="iEmpNo" placeholder="비우면 자동 부여"></div>
+        <div class="field"><label>성명 <em>*</em></label><input id="iName" required></div>
+        <div class="field"><label>소속 <em>*</em></label><input id="iTeam" list="teamList" required></div>
+        <div class="field"><label>직급</label><input id="iRank" list="rankList"></div>
+        <div class="field"><label>직군</label>
+          <select id="iJob"><option>경영지원</option><option>영업</option><option>구매</option><option>생산</option><option>연구개발</option><option>기타</option></select>
+        </div>
+        <div class="field"><label>고용형태</label>
+          <select id="iType"><option>정규직</option><option>계약직</option><option>수습</option></select>
+        </div>
+        <div class="field"><label>성별</label>
+          <select id="iGender"><option value="">선택 안 함</option><option>남</option><option>여</option></select>
+        </div>
+        <div class="field"><label>입사일 <em>*</em></label><input type="date" id="iJoin" required></div>
+        <div class="field"><label>퇴사일</label><input type="date" id="iLeave"></div>
+        <div class="field"><label>퇴직사유</label><input id="iLeaveReason" placeholder="이직 / 계약만료 / 개인사정 등"></div>
+        <div class="field span2"><label>비고</label><input id="iNote"></div>
+      </div>
+      <div class="modalfoot">
+        <button type="button" class="btn" id="btnModalClose">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<datalist id="teamList"></datalist>
+<datalist id="rankList"></datalist>
+
+<script id="app">
+'use strict';
+/* ───────────────────────── 기본 설정 ───────────────────────── */
+const LS_KEY = 'kfc_headcount_v1';
+const TEAMS = ['대표이사','임원','본부장','영업1팀','영업2팀','경영지원팀','구매팀','생산팀','스택개발팀','시스템개발팀','제어개발팀'];
+const RANKS = ['대표이사','상무','본부장','수석','책임','선임','매니저','연구원','사원'];
+/* 색각이상·대비 검증 완료 팔레트 (카테고리 7슬롯, 고정 순서) */
+const CAT = ['#2a78d6','#eb6834','#1baf7a','#eda100','#e87ba4','#008300','#6250d6'];
+const TEAL_RAMP = ['#7fb5c4','#4f9aad','#2a7f92','#0b6275'];   /* 근속 ordinal, 검증 완료 */
+const C_HIRE = '#1baf7a', C_EXIT = '#e34948', C_BRAND = '#0b7285', C_SLATE = '#5d7486';
+const INK = '#17242e', INK2 = '#5b6d7a', GRID = '#e9eef1';
+
+const state = {
+  employees: [],
+  settings: { planYear: new Date().getFullYear(), planCount: 8 },
+  report: { s1:'', s2:'', s3:'', savedAt: null },
+  sample: false
+};
+const charts = {};
+let editingId = null;
+
+/* ───────────────────────── 유틸 ───────────────────────── */
+const $ = (sel) => document.querySelector(sel);
+const todayD = () => { const n = new Date(); return new Date(n.getFullYear(), n.getMonth(), n.getDate()); };
+const toD = (s) => { if (!s) return null; const d = new Date(s + 'T00:00:00'); return isNaN(d) ? null : d; };
+const iso = (d) => d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+const kdate = (d) => d.getFullYear() + '. ' + String(d.getMonth()+1).padStart(2,'0') + '. ' + String(d.getDate()).padStart(2,'0');
+const uid = () => Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const esc = (s) => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rgba = (hex, a) => {
+  const n = parseInt(hex.slice(1), 16);
+  return 'rgba(' + (n>>16) + ',' + ((n>>8)&255) + ',' + (n&255) + ',' + a + ')';
+};
+const normDate = (v) => {
+  if (v == null || v === '') return '';
+  if (v instanceof Date && !isNaN(v)) return iso(v);
+  if (typeof v === 'number') { const d = new Date(Math.round((v - 25569) * 86400 * 1000)); return isNaN(d) ? '' : iso(d); }
+  const s = String(v).trim().replace(/[./]/g,'-').replace(/-+$/,'');
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+  if (!m) return '';
+  return m[1] + '-' + m[2].padStart(2,'0') + '-' + m[3].padStart(2,'0');
+};
+function isActiveAt(e, at){
+  const j = toD(e.joinDate); if (!j || j > at) return false;
+  const l = toD(e.leaveDate); return !l || l >= at;
+}
+function tenureYears(e, until){
+  const j = toD(e.joinDate); if (!j) return 0;
+  const end = toD(e.leaveDate) && toD(e.leaveDate) < until ? toD(e.leaveDate) : until;
+  return Math.max(0, (end - j) / (365.25 * 86400000));
+}
+const fmtTenure = (y) => y >= 1 ? y.toFixed(1) + '년' : Math.max(0, Math.round(y * 12)) + '개월';
+
+/* ───────────────────────── 저장/불러오기 ───────────────────────── */
+function save(){
+  try { localStorage.setItem(LS_KEY, JSON.stringify(state)); }
+  catch (e) { alert('데이터 저장에 실패했습니다. 브라우저 저장공간을 확인하세요.'); }
+}
+function load(){
+  try {
+    const raw = localStorage.getItem(LS_KEY);
+    if (raw) {
+      const data = JSON.parse(raw);
+      state.employees = Array.isArray(data.employees) ? data.employees : [];
+      Object.assign(state.settings, data.settings || {});
+      Object.assign(state.report, data.report || {});
+      state.sample = !!data.sample;
+      state.settings.planYear = new Date().getFullYear();
+      return;
+    }
+  } catch (e) { /* 손상된 데이터 → 샘플로 시작 */ }
+  seed();
+  save();
+}
+
+/* ───────────────────────── 샘플 데이터 ───────────────────────── */
+function seed(){
+  const rows = [
+    ['K001','홍성일','대표이사','대표이사','경영지원','정규직','남','2020-03-02','',''],
+    ['K002','김영배','임원','상무','영업','정규직','남','2020-05-11','',''],
+    ['K003','박정우','임원','상무','연구개발','정규직','남','2021-01-04','',''],
+    ['K004','이승권','임원','상무','생산','정규직','남','2021-07-01','',''],
+    ['K005','최동혁','본부장','본부장','영업','정규직','남','2021-09-01','',''],
+    ['K006','신우철','본부장','본부장','연구개발','정규직','남','2022-02-14','',''],
+    ['K007','윤상민','영업1팀','선임','영업','정규직','남','2022-05-02','',''],
+    ['K008','한가영','영업1팀','매니저','영업','정규직','여','2024-03-04','',''],
+    ['K009','조현성','영업2팀','책임','영업','정규직','남','2022-08-16','',''],
+    ['K010','임다혜','영업2팀','매니저','영업','정규직','여','2025-02-03','',''],
+    ['K011','서준호','경영지원팀','책임','경영지원','정규직','남','2023-01-02','',''],
+    ['K012','문지현','경영지원팀','선임','경영지원','정규직','여','2023-06-12','',''],
+    ['K013','백승아','경영지원팀','매니저','경영지원','정규직','여','2025-07-01','',''],
+    ['K014','오민재','구매팀','책임','구매','정규직','남','2021-11-01','',''],
+    ['K015','황보라','구매팀','선임','구매','정규직','여','2024-09-02','',''],
+    ['K016','전태규','생산팀','수석','생산','정규직','남','2020-09-01','',''],
+    ['K017','남기원','생산팀','책임','생산','정규직','남','2021-04-05','',''],
+    ['K018','유성재','생산팀','선임','생산','정규직','남','2022-10-04','',''],
+    ['K019','고은비','생산팀','매니저','생산','정규직','여','2024-01-08','',''],
+    ['K020','차민호','생산팀','매니저','생산','수습','남','2026-09-01','',''],
+    ['K021','노현우','스택개발팀','수석','연구개발','정규직','남','2020-06-01','',''],
+    ['K022','양지훈','스택개발팀','책임','연구개발','정규직','남','2021-03-02','',''],
+    ['K023','구세라','스택개발팀','선임','연구개발','정규직','여','2023-04-03','',''],
+    ['K024','두경민','스택개발팀','연구원','연구개발','정규직','남','2025-05-07','',''],
+    ['K025','하정민','시스템개발팀','책임','연구개발','정규직','남','2021-08-02','',''],
+    ['K026','손미경','시스템개발팀','선임','연구개발','정규직','여','2022-03-07','',''],
+    ['K027','변성호','시스템개발팀','선임','연구개발','정규직','남','2023-09-04','',''],
+    ['K028','심재욱','시스템개발팀','연구원','연구개발','수습','남','2026-08-03','',''],
+    ['K029','공유진','제어개발팀','책임','연구개발','정규직','여','2022-01-10','',''],
+    ['K030','설하윤','제어개발팀','선임','연구개발','정규직','여','2023-11-06','',''],
+    ['K031','반도윤','제어개발팀','연구원','연구개발','정규직','남','2025-03-03','',''],
+    ['K032','금동현','생산팀','매니저','생산','정규직','남','2025-05-12','2025-12-15','개인사정(이직)'],
+    ['K033','어진수','시스템개발팀','선임','연구개발','정규직','남','2023-05-02','2026-04-30','이직'],
+    ['K034','피재원','영업2팀','매니저','영업','계약직','남','2025-10-01','2026-08-31','계약만료']
+  ];
+  state.employees = rows.map(r => ({
+    id: uid(), empNo: r[0], name: r[1], team: r[2], rank: r[3], jobGroup: r[4],
+    empType: r[5], gender: r[6], joinDate: r[7], leaveDate: r[8], leaveReason: r[9], note: ''
+  }));
+  state.sample = true;
+}
+
+/* ───────────────────────── 지표 계산 ───────────────────────── */
+function computeMetrics(){
+  const now = todayD();
+  const emps = state.employees;
+  const active = emps.filter(e => isActiveAt(e, now));
+
+  const mStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const hiresM = emps.filter(e => { const j = toD(e.joinDate); return j && j >= mStart && j <= now; }).length;
+  const exitsM = emps.filter(e => { const l = toD(e.leaveDate); return l && l >= mStart && l <= now; }).length;
+
+  const months = [];
+  let sumHead = 0;
+  for (let i = 11; i >= 0; i--) {
+    const ms = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const me = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+    const end = me > now ? now : me;
+    const head = emps.filter(e => isActiveAt(e, end)).length;
+    const hires = emps.filter(e => { const j = toD(e.joinDate); return j && j >= ms && j <= me; }).length;
+    const exits = emps.filter(e => { const l = toD(e.leaveDate); return l && l >= ms && l <= me; }).length;
+    months.push({ label: String(ms.getFullYear()).slice(2) + '.' + String(ms.getMonth()+1).padStart(2,'0'), head, hires, exits });
+    sumHead += head;
+  }
+  const from12 = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  const exits12 = emps.filter(e => { const l = toD(e.leaveDate); return l && l >= from12 && l <= now; });
+  const avgHead = sumHead / 12;
+  const turnover = avgHead ? exits12.length / avgHead * 100 : 0;
+  const earlyPct = exits12.length ? exits12.filter(e => tenureYears(e, now) < 1).length / exits12.length * 100 : 0;
+  const avgTenure = active.length ? active.reduce((s, e) => s + tenureYears(e, now), 0) / active.length : 0;
+  const prevHead = months.length >= 2 ? months[months.length - 2].head : active.length;
+  const probation = active.filter(e => e.empType === '수습').length;
+
+  const planYear = state.settings.planYear;
+  const hiresY = emps.filter(e => { const j = toD(e.joinDate); return j && j.getFullYear() === planYear; }).length;
+
+  return { now, active, hiresM, exitsM, months, exits12, turnover, earlyPct, avgTenure, prevHead, probation, avgHead, hiresY };
+}
+
+/* ───────────────────────── KPI ───────────────────────── */
+function sparkline(values){
+  if (!values.length) return '';
+  const w = 84, h = 26, min = Math.min(...values), max = Math.max(...values);
+  const span = (max - min) || 1;
+  const pts = values.map((v, i) =>
+    (i / (values.length - 1) * (w - 2) + 1).toFixed(1) + ',' + ((1 - (v - min) / span) * (h - 6) + 3).toFixed(1)
+  ).join(' ');
+  return '<svg class="spark" viewBox="0 0 ' + w + ' ' + h + '" aria-hidden="true">' +
+    '<polyline points="' + pts + '" fill="none" stroke="' + C_BRAND + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+}
+function renderKpis(m){
+  const delta = m.active.length - m.prevHead;
+  const pill = (d, suffix) => {
+    const cls = d > 0 ? 'up' : d < 0 ? 'down' : 'flat';
+    const txt = d > 0 ? '▲ ' + d + (suffix||'') : d < 0 ? '▼ ' + Math.abs(d) + (suffix||'') : '—';
+    return '<span class="pill ' + cls + '">' + txt + '</span>';
+  };
+  const cards = [
+    { l:'재직 인원', v:m.active.length, u:'명', p:pill(delta,'명'), cap:'전월 말 대비', extra:sparkline(m.months.map(x=>x.head)) },
+    { l:'당월 입사', v:m.hiresM, u:'명', cap:iso(m.now).slice(0,7).replace('-','년 ') + '월 기준' },
+    { l:'당월 퇴사', v:m.exitsM, u:'명', cap:iso(m.now).slice(0,7).replace('-','년 ') + '월 기준' },
+    { l:'이직률', v:m.turnover.toFixed(1), u:'%', cap:'최근 12개월 · 평균 재직 ' + m.avgHead.toFixed(1) + '명' },
+    { l:'평균 근속', v:m.avgTenure.toFixed(1), u:'년', cap:'재직자 기준' },
+    { l:'조기퇴사 비중', v:m.exits12.length ? m.earlyPct.toFixed(0) : '0', u:'%', cap:'퇴사자 중 근속 1년 미만 · 수습 ' + m.probation + '명' }
+  ];
+  $('#kpiGrid').innerHTML = cards.map(c =>
+    '<div class="kpi"><div class="l">' + c.l + '</div>' +
+    '<div class="row"><div class="v">' + c.v + '<small>' + c.u + '</small></div>' + (c.p || '') + '</div>' +
+    '<div class="cap">' + c.cap + '</div>' + (c.extra || '') + '</div>'
+  ).join('');
+}
+
+/* ───────────────────────── 자동 분석 요약 ───────────────────────── */
+function renderInsights(m){
+  const delta = m.active.length - m.prevHead;
+  const dTxt = delta > 0 ? '+' + delta + '명 증가' : delta < 0 ? Math.abs(delta) + '명 감소' : '변동 없음';
+  const level = m.turnover < 12 ? ['good','양호'] : m.turnover < 20 ? ['warn','주의'] : ['high','높음'];
+  const plan = Number(state.settings.planCount) || 0;
+  const rate = plan ? Math.min(100, m.hiresY / plan * 100).toFixed(0) : null;
+  const items = [
+    '재직 <b>' + m.active.length + '명</b> — 전월 말 대비 ' + dTxt + '. 당월 입사 ' + m.hiresM + '명, 퇴사 ' + m.exitsM + '명.',
+    '최근 12개월 이직률 <b>' + m.turnover.toFixed(1) + '%</b> (퇴사 ' + m.exits12.length + '명 / 평균 재직 ' + m.avgHead.toFixed(1) + '명) — <span class="lv ' + level[0] + '"><i></i>' + level[1] + '</span>' +
+      (m.exits12.length ? ' · 조기퇴사 비중 ' + m.earlyPct.toFixed(0) + '%' : ''),
+    plan
+      ? state.settings.planYear + '년 충원계획 ' + plan + '명 중 <b>' + m.hiresY + '명</b> 입사 (충원율 ' + rate + '%)' + (m.probation ? ' · 수습 ' + m.probation + '명 평가 예정' : '')
+      : '충원계획이 미설정 상태입니다 — 연간 충원 현황 패널에서 계획 인원을 입력하세요.'
+  ];
+  $('#insightList').innerHTML = items.map(t => '<li><span>' + t + '</span></li>').join('');
+}
+
+/* ───────────────────────── 차트 공통 ───────────────────────── */
+const CHART_OK = typeof Chart !== 'undefined';   /* CDN 미로드 시에도 명부·보고 기능은 유지 */
+const centerText = {
+  id: 'centerText',
+  afterDraw(c, args, opt){
+    if (!opt || !opt.lines) return;
+    const { ctx, chartArea } = c;
+    const x = (chartArea.left + chartArea.right) / 2, y = (chartArea.top + chartArea.bottom) / 2;
+    ctx.save(); ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = INK; ctx.font = "800 20px 'Pretendard','Malgun Gothic',sans-serif";
+    ctx.fillText(opt.lines[0], x, y - 6);
+    ctx.fillStyle = INK2; ctx.font = "600 11px 'Pretendard','Malgun Gothic',sans-serif";
+    ctx.fillText(opt.lines[1], x, y + 12);
+    ctx.restore();
+  }
+};
+if (CHART_OK) {
+  if (typeof ChartDataLabels !== 'undefined') Chart.register(ChartDataLabels);
+  Chart.defaults.set('plugins.datalabels', { display: false });
+  Chart.register(centerText);
+  Chart.defaults.font.family = "'Pretendard','Malgun Gothic',sans-serif";
+  Chart.defaults.color = INK2;
+  Chart.defaults.borderColor = GRID;
+}
+function mkChart(id, cfg){
+  if (charts[id]) charts[id].destroy();
+  charts[id] = new Chart($('#' + id), cfg);
+}
+function doughnutOpts(total, unit){
+  return {
+    responsive:true, maintainAspectRatio:false, cutout:'62%',
+    plugins:{
+      centerText:{ lines:[String(total), unit] },
+      legend:{
+        position:'right',
+        labels:{
+          boxWidth:11, boxHeight:11, padding:9, font:{ size:11.5 }, color:INK2,
+          generateLabels(chart){
+            const base = Chart.overrides.doughnut.plugins.legend.labels.generateLabels(chart);
+            const data = chart.data.datasets[0].data;
+            base.forEach((lb, i) => { lb.text = lb.text + ' · ' + data[i] + '명'; });
+            return base;
+          }
+        }
+      },
+      tooltip:{ callbacks:{ label(ctx){
+        const v = ctx.parsed, sum = ctx.dataset.data.reduce((a,b)=>a+b,0);
+        return ' ' + ctx.label + ': ' + v + '명 (' + (sum ? (v/sum*100).toFixed(0) : 0) + '%)';
+      } } }
+    }
+  };
+}
+
+/* ───────────────────────── 차트 ───────────────────────── */
+function renderCharts(m){
+  if (!CHART_OK) return;
+  const fixY = (w) => (s) => { s.width = w; };
+  const lastIdx = m.months.length - 1;
+
+  /* 월말 재직 추이 (라인) — 단일 축 */
+  const heads = m.months.map(x => x.head);
+  mkChart('chHead', {
+    type:'line',
+    data:{ labels:m.months.map(x=>x.label), datasets:[{
+      label:'월말 재직', data:heads, borderColor:C_BRAND, backgroundColor:rgba(C_BRAND,.08),
+      fill:true, tension:.3, pointRadius:(c)=> c.dataIndex === lastIdx ? 4 : 2.5,
+      pointBackgroundColor:C_BRAND, borderWidth:2.5
+    }]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      layout:{ padding:{ top:14, right:8 } },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{ callbacks:{ label(ctx){ return ' 월말 재직 ' + ctx.parsed.y + '명'; } } },
+        datalabels:{
+          display:(ctx)=> ctx.dataIndex === lastIdx,
+          align:'top', offset:4, color:INK, font:{ weight:700, size:11 },
+          formatter:(v)=> v + '명'
+        }
+      },
+      scales:{
+        x:{ ticks:{ display:false }, grid:{ display:false } },
+        y:{ afterFit:fixY(42), suggestedMin:Math.max(0, Math.min(...heads) - 2), suggestedMax:Math.max(...heads) + 2,
+            ticks:{ precision:0, font:{ size:10.5 } } }
+      }
+    }
+  });
+
+  /* 월별 입·퇴사 (그룹 막대) — 라인과 X축 공유 */
+  const flowMax = Math.max(1, ...m.months.map(x => Math.max(x.hires, x.exits)));
+  mkChart('chFlow', {
+    type:'bar',
+    data:{ labels:m.months.map(x=>x.label), datasets:[
+      { label:'입사', data:m.months.map(x=>x.hires), backgroundColor:C_HIRE, borderRadius:{ topLeft:3, topRight:3 }, barPercentage:.5, categoryPercentage:.72 },
+      { label:'퇴사', data:m.months.map(x=>x.exits), backgroundColor:C_EXIT, borderRadius:{ topLeft:3, topRight:3 }, barPercentage:.5, categoryPercentage:.72 }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      layout:{ padding:{ top:12 } },
+      plugins:{
+        legend:{ position:'bottom', labels:{ boxWidth:11, boxHeight:11, font:{ size:11.5 } } },
+        tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.dataset.label + ' ' + ctx.parsed.y + '명'; } } },
+        datalabels:{
+          display:(ctx)=> ctx.dataset.data[ctx.dataIndex] > 0,
+          anchor:'end', align:'top', offset:-1, color:INK2, font:{ weight:700, size:9.5 },
+          formatter:(v)=> v
+        }
+      },
+      scales:{
+        x:{ grid:{ display:false }, ticks:{ font:{ size:10.5 } } },
+        y:{ afterFit:fixY(42), beginAtZero:true, suggestedMax:flowMax + 1, ticks:{ precision:0, stepSize:1, font:{ size:10.5 } } }
+      }
+    }
+  });
+
+  /* 팀별 인원 */
+  const teamCnt = {};
+  m.active.forEach(e => { teamCnt[e.team] = (teamCnt[e.team] || 0) + 1; });
+  const teamKeys = TEAMS.filter(t => teamCnt[t]).concat(Object.keys(teamCnt).filter(t => !TEAMS.includes(t)));
+  mkChart('chTeam', {
+    type:'bar',
+    data:{ labels:teamKeys, datasets:[{ data:teamKeys.map(t=>teamCnt[t]), backgroundColor:C_BRAND,
+      borderRadius:{ topRight:3, bottomRight:3 }, barPercentage:.68, categoryPercentage:.82 }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ right:22 } },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.parsed.x + '명'; } } },
+        datalabels:{ display:true, anchor:'end', align:'end', offset:2, color:INK2, font:{ weight:700, size:10.5 }, formatter:(v)=> v }
+      },
+      scales:{
+        x:{ display:false, suggestedMax:Math.max(...teamKeys.map(t=>teamCnt[t])) + 1 },
+        y:{ grid:{ display:false }, ticks:{ font:{ size:11 } } }
+      }
+    }
+  });
+
+  /* 직급 분포 */
+  const bandOf = (r) => {
+    r = r || '';
+    if (/대표/.test(r)) return '대표이사';
+    if (/(상무|전무|이사)/.test(r)) return '임원';
+    if (/본부장/.test(r)) return '본부장';
+    if (/수석/.test(r)) return '수석';
+    if (/책임/.test(r)) return '책임';
+    if (/선임/.test(r)) return '선임';
+    return '원급';
+  };
+  const order = ['대표이사','임원','본부장','수석','책임','선임','원급'];
+  const rankCnt = {};
+  m.active.forEach(e => { const b = bandOf(e.rank); rankCnt[b] = (rankCnt[b] || 0) + 1; });
+  const rKeys = order.filter(k => rankCnt[k]);
+  mkChart('chRank', {
+    type:'doughnut',
+    data:{ labels:rKeys, datasets:[{ data:rKeys.map(k=>rankCnt[k]),
+      backgroundColor:rKeys.map((k,i)=>CAT[i%CAT.length]), borderWidth:2, borderColor:'#fff' }] },
+    options: doughnutOpts(m.active.length, '재직')
+  });
+
+  /* 고용형태 */
+  const typeCnt = {};
+  m.active.forEach(e => { const t = e.empType || '정규직'; typeCnt[t] = (typeCnt[t] || 0) + 1; });
+  const tKeys = ['정규직','계약직','수습'].filter(k => typeCnt[k]).concat(Object.keys(typeCnt).filter(k => !['정규직','계약직','수습'].includes(k)));
+  mkChart('chType', {
+    type:'doughnut',
+    data:{ labels:tKeys, datasets:[{ data:tKeys.map(k=>typeCnt[k]),
+      backgroundColor:tKeys.map((k,i)=>CAT[i%CAT.length]), borderWidth:2, borderColor:'#fff' }] },
+    options: doughnutOpts(m.active.length, '재직')
+  });
+
+  /* 근속연수 분포 (순서형 → 밝기 단계) */
+  const buckets = { '1년 미만':0, '1~3년':0, '3~5년':0, '5년 이상':0 };
+  m.active.forEach(e => {
+    const y = tenureYears(e, m.now);
+    if (y < 1) buckets['1년 미만']++;
+    else if (y < 3) buckets['1~3년']++;
+    else if (y < 5) buckets['3~5년']++;
+    else buckets['5년 이상']++;
+  });
+  mkChart('chTenure', {
+    type:'bar',
+    data:{ labels:Object.keys(buckets), datasets:[{ data:Object.values(buckets),
+      backgroundColor:TEAL_RAMP, borderRadius:{ topLeft:3, topRight:3 }, barPercentage:.62 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ top:16 } },
+      plugins:{
+        legend:{ display:false },
+        tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.parsed.y + '명'; } } },
+        datalabels:{ display:true, anchor:'end', align:'top', offset:0, color:INK2, font:{ weight:700, size:10.5 }, formatter:(v)=> v }
+      },
+      scales:{
+        y:{ display:false, beginAtZero:true, suggestedMax:Math.max(...Object.values(buckets)) + 2 },
+        x:{ grid:{ display:false }, ticks:{ font:{ size:11 } } }
+      }
+    }
+  });
+
+  /* 퇴사 사유 (최근 12개월) */
+  const hasExits = m.exits12.length > 0;
+  $('#exitBox').style.display = hasExits ? '' : 'none';
+  $('#noExit').hidden = hasExits;
+  if (hasExits) {
+    const rc = {};
+    m.exits12.forEach(e => { const k = (e.leaveReason || '').trim() || '미기재'; rc[k] = (rc[k] || 0) + 1; });
+    const keys = Object.keys(rc).sort((a,b)=>rc[b]-rc[a]).slice(0,6);
+    mkChart('chExit', {
+      type:'bar',
+      data:{ labels:keys, datasets:[{ data:keys.map(k=>rc[k]), backgroundColor:C_SLATE,
+        borderRadius:{ topRight:3, bottomRight:3 }, barPercentage:.55 }] },
+      options:{
+        indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        layout:{ padding:{ right:22 } },
+        plugins:{
+          legend:{ display:false },
+          tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.parsed.x + '명'; } } },
+          datalabels:{ display:true, anchor:'end', align:'end', offset:2, color:INK2, font:{ weight:700, size:10.5 }, formatter:(v)=> v }
+        },
+        scales:{
+          x:{ display:false, suggestedMax:Math.max(...keys.map(k=>rc[k])) + 1 },
+          y:{ grid:{ display:false }, ticks:{ font:{ size:11 } } }
+        }
+      }
+    });
+  } else if (charts.chExit) { charts.chExit.destroy(); delete charts.chExit; }
+}
+
+/* ───────────────────────── 충원 현황 ───────────────────────── */
+function renderPlan(m){
+  const y = state.settings.planYear;
+  const plan = Number(state.settings.planCount) || 0;
+  const rate = plan ? Math.min(100, m.hiresY / plan * 100) : 0;
+  $('#planYearLabel').textContent = y + '년';
+  $('#planCount').value = plan;
+  $('#planBar').style.width = rate.toFixed(0) + '%';
+  $('#planHired').textContent = '입사 누적 ' + m.hiresY + '명 / 계획 ' + plan + '명';
+  $('#planRate').textContent = '충원율 ' + (plan ? rate.toFixed(0) + '%' : '—');
+  $('#planHint').textContent = plan && m.hiresY < plan
+    ? '연말까지 ' + (plan - m.hiresY) + '명 추가 충원이 필요합니다.'
+    : plan ? '올해 충원계획을 달성했습니다.' : '충원계획 인원을 입력하면 달성률이 표시됩니다.';
+
+  /* 올해 입사자 미니 리스트 */
+  const hires = state.employees
+    .filter(e => { const j = toD(e.joinDate); return j && j.getFullYear() === y; })
+    .sort((a, b) => (b.joinDate || '').localeCompare(a.joinDate || ''));
+  const top = hires.slice(0, 5);
+  $('#hireList').innerHTML = top.length
+    ? top.map(e =>
+        '<div class="mrow"><span class="tag in">입사</span><b>' + esc(e.name) + '</b>' +
+        '<span class="sub2">' + esc(e.team) + '</span><span class="dt">' + esc((e.joinDate || '').slice(5).replace('-', '.')) + '</span></div>'
+      ).join('') + (hires.length > 5 ? '<div class="mrow more">외 ' + (hires.length - 5) + '명</div>' : '')
+    : '<div class="mrow more">올해 입사자가 없습니다.</div>';
+}
+
+/* ───────────────────────── 최근 인사이동 ───────────────────────── */
+function renderMoves(){
+  const ev = [];
+  state.employees.forEach(e => {
+    if (e.joinDate) ev.push({ d: e.joinDate, t: 'in', e });
+    if (e.leaveDate) ev.push({ d: e.leaveDate, t: 'out', e });
+  });
+  ev.sort((a, b) => b.d.localeCompare(a.d));
+  const top = ev.slice(0, 6);
+  $('#moveList').innerHTML = top.length
+    ? top.map(x =>
+        '<div class="mrow"><span class="tag ' + x.t + '">' + (x.t === 'in' ? '입사' : '퇴사') + '</span>' +
+        '<b>' + esc(x.e.name) + '</b><span class="sub2">' + esc(x.e.team) + ' · ' + esc(x.e.rank || '-') + '</span>' +
+        '<span class="dt">' + esc(x.d.replace(/-/g, '.')) + '</span></div>'
+      ).join('')
+    : '<div class="mrow more">기록이 없습니다.</div>';
+}
+
+/* ───────────────────────── 명부 ───────────────────────── */
+function teamColor(team){
+  const i = TEAMS.indexOf(team);
+  return CAT[(i === -1 ? team.length : i) % CAT.length];
+}
+function teamFilterOptions(){
+  const found = [...new Set(state.employees.map(e => e.team).filter(Boolean))];
+  const keys = TEAMS.filter(t => found.includes(t)).concat(found.filter(t => !TEAMS.includes(t)));
+  const cur = $('#fTeam').value;
+  $('#fTeam').innerHTML = '<option value="">소속 전체</option>' + keys.map(t => '<option>' + esc(t) + '</option>').join('');
+  if (keys.includes(cur)) $('#fTeam').value = cur;
+}
+function renderRoster(){
+  const now = todayD();
+  const q = $('#q').value.trim().toLowerCase();
+  const ft = $('#fTeam').value, fs = $('#fStatus').value, fy = $('#fType').value;
+  const teamIdx = (t) => { const i = TEAMS.indexOf(t); return i === -1 ? 999 : i; };
+
+  let list = state.employees.slice().sort((a, b) => {
+    const aa = isActiveAt(a, now) ? 0 : 1, bb = isActiveAt(b, now) ? 0 : 1;
+    if (aa !== bb) return aa - bb;
+    if (teamIdx(a.team) !== teamIdx(b.team)) return teamIdx(a.team) - teamIdx(b.team);
+    return (a.joinDate || '').localeCompare(b.joinDate || '');
+  });
+  list = list.filter(e => {
+    const on = isActiveAt(e, now);
+    if (q && !((e.name || '').toLowerCase().includes(q) || (e.empNo || '').toLowerCase().includes(q))) return false;
+    if (ft && e.team !== ft) return false;
+    if (fs === '재직' && !on) return false;
+    if (fs === '퇴사' && on) return false;
+    if (fy && e.empType !== fy) return false;
+    return true;
+  });
+
+  const activeN = state.employees.filter(e => isActiveAt(e, now)).length;
+  $('#rosterCount').textContent = '표시 ' + list.length + '명 · 재직 ' + activeN + '명 / 전체 ' + state.employees.length + '명';
+  $('#rosterEmpty').hidden = state.employees.length > 0;
+
+  $('#rosterBody').innerHTML = list.map(e => {
+    const on = isActiveAt(e, now);
+    const col = teamColor(e.team || '');
+    const status = on
+      ? (e.empType === '수습' ? '<span class="chip prob">수습</span>' : '<span class="chip on">재직</span>')
+      : '<span class="chip off">퇴사</span>';
+    const dateInfo = on ? esc(e.joinDate || '') : esc(e.joinDate || '') + ' → ' + esc(e.leaveDate || '');
+    const quit = on ? '<button class="rowbtn" data-act="leave" data-id="' + e.id + '">퇴사</button>' : '';
+    return '<tr class="' + (on ? '' : 'left') + '">' +
+      '<td><div class="who"><span class="avt" style="background:' + rgba(col,.14) + ';color:' + col + '">' + esc((e.name||'?').slice(0,1)) + '</span>' +
+      '<div><div class="nm">' + esc(e.name) + '</div><div class="no">' + esc(e.empNo) + '</div></div></div></td>' +
+      '<td>' + esc(e.team) + '</td><td>' + esc(e.rank) + '</td><td>' + esc(e.jobGroup) + '</td><td>' + esc(e.empType) + '</td>' +
+      '<td>' + dateInfo + '</td><td>' + fmtTenure(tenureYears(e, now)) + '</td><td>' + status + '</td>' +
+      '<td><button class="rowbtn" data-act="edit" data-id="' + e.id + '">수정</button> ' + quit +
+      ' <button class="rowbtn danger" data-act="del" data-id="' + e.id + '">삭제</button></td></tr>';
+  }).join('');
+}
+$('#rosterBody').addEventListener('click', (ev) => {
+  const btn = ev.target.closest('button[data-act]');
+  if (!btn) return;
+  const emp = state.employees.find(e => e.id === btn.dataset.id);
+  if (!emp) return;
+  if (btn.dataset.act === 'edit') openModal(emp);
+  if (btn.dataset.act === 'leave') { openModal(emp); if (!$('#iLeave').value) $('#iLeave').value = iso(todayD()); $('#iLeave').focus(); }
+  if (btn.dataset.act === 'del') {
+    if (confirm(emp.name + ' 님의 데이터를 삭제할까요?\n퇴사자는 삭제 대신 퇴사일 입력을 권장합니다(이직률 집계 유지).')) {
+      state.employees = state.employees.filter(e => e.id !== emp.id);
+      save(); renderAll();
+    }
+  }
+});
+['q','fTeam','fStatus','fType'].forEach(id => $('#' + id).addEventListener('input', renderRoster));
+
+/* ───────────────────────── 모달 ───────────────────────── */
+function openModal(emp){
+  editingId = emp ? emp.id : null;
+  $('#modalTitle').textContent = emp ? '직원 정보 수정' : '직원 등록';
+  $('#iEmpNo').value = emp ? emp.empNo : '';
+  $('#iName').value = emp ? emp.name : '';
+  $('#iTeam').value = emp ? emp.team : '';
+  $('#iRank').value = emp ? emp.rank : '';
+  $('#iJob').value = emp ? (emp.jobGroup || '기타') : '경영지원';
+  $('#iType').value = emp ? (emp.empType || '정규직') : '정규직';
+  $('#iGender').value = emp ? (emp.gender || '') : '';
+  $('#iJoin').value = emp ? emp.joinDate : '';
+  $('#iLeave').value = emp ? (emp.leaveDate || '') : '';
+  $('#iLeaveReason').value = emp ? (emp.leaveReason || '') : '';
+  $('#iNote').value = emp ? (emp.note || '') : '';
+  $('#overlay').hidden = false;
+  $('#iName').focus();
+}
+function closeModal(){ $('#overlay').hidden = true; editingId = null; }
+function nextEmpNo(){
+  let n = state.employees.length + 1;
+  let no;
+  do { no = 'K' + String(n).padStart(3, '0'); n++; }
+  while (state.employees.some(e => e.empNo === no));
+  return no;
+}
+$('#empForm').addEventListener('submit', (ev) => {
+  ev.preventDefault();
+  const rec = {
+    empNo: $('#iEmpNo').value.trim() || nextEmpNo(),
+    name: $('#iName').value.trim(),
+    team: $('#iTeam').value.trim(),
+    rank: $('#iRank').value.trim(),
+    jobGroup: $('#iJob').value,
+    empType: $('#iType').value,
+    gender: $('#iGender').value,
+    joinDate: $('#iJoin').value,
+    leaveDate: $('#iLeave').value,
+    leaveReason: $('#iLeaveReason').value.trim(),
+    note: $('#iNote').value.trim()
+  };
+  if (!rec.name || !rec.joinDate || !rec.team) { alert('성명·소속·입사일은 필수입니다.'); return; }
+  if (rec.leaveDate && rec.leaveDate < rec.joinDate) { alert('퇴사일이 입사일보다 빠를 수 없습니다.'); return; }
+  if (editingId) {
+    const emp = state.employees.find(e => e.id === editingId);
+    Object.assign(emp, rec);
+  } else {
+    state.employees.push(Object.assign({ id: uid() }, rec));
+    state.sample = false;
+  }
+  save(); closeModal(); renderAll();
+});
+$('#btnModalClose').addEventListener('click', closeModal);
+$('#overlay').addEventListener('click', (ev) => { if (ev.target === $('#overlay')) closeModal(); });
+document.addEventListener('keydown', (ev) => { if (ev.key === 'Escape' && !$('#overlay').hidden) closeModal(); });
+$('#btnAdd').addEventListener('click', () => openModal(null));
+
+/* ───────────────────────── 엑셀 업로드/다운로드 ───────────────────────── */
+const XL_HEADERS = ['사번','성명','소속','직급','직군','고용형태','성별','입사일','퇴사일','퇴직사유','비고'];
+$('#btnUpload').addEventListener('click', () => $('#fileInput').click());
+$('#fileInput').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  try {
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, { cellDates: true });
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const rows = XLSX.utils.sheet_to_json(ws, { defval: '' });
+    const pick = (row, keys) => { for (const k of keys) { if (row[k] !== undefined && row[k] !== '') return row[k]; } return ''; };
+    const list = [];
+    let skipped = 0;
+    rows.forEach(r => {
+      const name = String(pick(r, ['성명','이름','name','성 명'])).trim();
+      const join = normDate(pick(r, ['입사일','입사일자','입사','joinDate']));
+      if (!name || !join) { skipped++; return; }
+      list.push({
+        id: uid(),
+        empNo: String(pick(r, ['사번','사원번호','empNo'])).trim(),
+        name,
+        team: String(pick(r, ['소속','팀','부서','team'])).trim(),
+        rank: String(pick(r, ['직급','직책','rank'])).trim(),
+        jobGroup: String(pick(r, ['직군','jobGroup'])).trim(),
+        empType: String(pick(r, ['고용형태','고용구분','empType'])).trim() || '정규직',
+        gender: String(pick(r, ['성별','gender'])).trim(),
+        joinDate: join,
+        leaveDate: normDate(pick(r, ['퇴사일','퇴사일자','leaveDate'])),
+        leaveReason: String(pick(r, ['퇴직사유','퇴사사유','leaveReason'])).trim(),
+        note: String(pick(r, ['비고','note'])).trim()
+      });
+    });
+    if (!list.length) { alert('불러올 데이터가 없습니다. 성명·입사일 열이 있는지 확인하세요.\n(업로드 양식 받기 버튼으로 표준 양식을 확인할 수 있습니다.)'); ev.target.value = ''; return; }
+    const replace = state.employees.length === 0 ? true :
+      confirm(list.length + '명 데이터를 불러왔습니다.\n\n[확인] 기존 명부를 교체합니다.\n[취소] 기존 명부에 추가합니다.');
+    if (replace) state.employees = list; else state.employees = state.employees.concat(list);
+    state.sample = false;
+    save(); renderAll();
+    alert('업로드 완료: ' + list.length + '명 반영' + (skipped ? ' / ' + skipped + '행 제외(성명·입사일 누락)' : ''));
+  } catch (e) {
+    alert('파일을 읽지 못했습니다. .xlsx 형식인지 확인 후 다시 시도하세요.');
+  }
+  ev.target.value = '';
+});
+function toSheetRows(list){
+  return list.map(e => ({
+    '사번': e.empNo, '성명': e.name, '소속': e.team, '직급': e.rank, '직군': e.jobGroup,
+    '고용형태': e.empType, '성별': e.gender, '입사일': e.joinDate, '퇴사일': e.leaveDate,
+    '퇴직사유': e.leaveReason, '비고': e.note
+  }));
+}
+function downloadXlsx(rows, name){
+  const ws = XLSX.utils.json_to_sheet(rows, { header: XL_HEADERS });
+  ws['!cols'] = [{wch:8},{wch:10},{wch:12},{wch:10},{wch:10},{wch:10},{wch:6},{wch:12},{wch:12},{wch:14},{wch:16}];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, '인력명부');
+  XLSX.writeFile(wb, name);
+}
+$('#btnExport').addEventListener('click', () => {
+  if (!state.employees.length) { alert('내보낼 명부가 없습니다.'); return; }
+  downloadXlsx(toSheetRows(state.employees), '인력명부_' + iso(todayD()).replace(/-/g, '') + '.xlsx');
+});
+$('#btnTemplate').addEventListener('click', () => {
+  downloadXlsx([
+    { '사번':'K001','성명':'홍길동','소속':'경영지원팀','직급':'선임','직군':'경영지원','고용형태':'정규직','성별':'남','입사일':'2024-03-02','퇴사일':'','퇴직사유':'','비고':'' },
+    { '사번':'K002','성명':'김하나','소속':'생산팀','직급':'매니저','직군':'생산','고용형태':'수습','성별':'여','입사일':'2026-09-01','퇴사일':'','퇴직사유':'','비고':'수습 3개월' }
+  ], '인력명부_업로드양식.xlsx');
+});
+
+/* ───────────────────────── 팀장 보고 ───────────────────────── */
+function renderReport(m){
+  $('#repDate').textContent = kdate(m.now);
+  const delta = m.active.length - m.prevHead;
+  const dTxt = delta > 0 ? '+' + delta + '명' : delta < 0 ? '-' + Math.abs(delta) + '명' : '변동 없음';
+  const plan = Number(state.settings.planCount) || 0;
+  const rows = [
+    ['재직 인원', m.active.length + '명', '전월 말 대비 ' + dTxt],
+    ['당월 입 · 퇴사', '입사 ' + m.hiresM + '명 / 퇴사 ' + m.exitsM + '명', iso(m.now).slice(0,7).replace('-','년 ') + '월 기준'],
+    ['이직률 (최근 12개월)', m.turnover.toFixed(1) + '%', '퇴사 ' + m.exits12.length + '명 / 평균 재직 ' + m.avgHead.toFixed(1) + '명'],
+    ['평균 근속', m.avgTenure.toFixed(1) + '년', '재직자 기준 · 수습 ' + m.probation + '명'],
+    ['충원율', plan ? Math.min(100, m.hiresY / plan * 100).toFixed(0) + '%' : '계획 미설정',
+      plan ? state.settings.planYear + '년 계획 ' + plan + '명 중 ' + m.hiresY + '명 입사' : '대시보드에서 충원계획을 입력하세요']
+  ];
+  $('#sumTable').innerHTML =
+    '<tr><th style="width:170px">구분</th><th style="width:200px">수치</th><th>비고</th></tr>' +
+    rows.map(r => '<tr><th>' + r[0] + '</th><td class="v">' + r[1] + '</td><td class="note">' + r[2] + '</td></tr>').join('');
+
+  $('#rep1').value = state.report.s1 || '';
+  $('#rep2').value = state.report.s2 || '';
+  $('#rep3').value = state.report.s3 || '';
+  syncMirrors();
+  $('#repSaved').textContent = state.report.savedAt
+    ? '마지막 저장: ' + new Date(state.report.savedAt).toLocaleString('ko-KR') : '저장된 내용이 없습니다.';
+}
+function syncMirrors(){
+  $('#pm1').textContent = $('#rep1').value || '(작성 내용 없음)';
+  $('#pm2').textContent = $('#rep2').value || '(작성 내용 없음)';
+  $('#pm3').textContent = $('#rep3').value || '(작성 내용 없음)';
+}
+['rep1','rep2','rep3'].forEach(id => $('#' + id).addEventListener('input', syncMirrors));
+$('#btnRepSave').addEventListener('click', () => {
+  state.report.s1 = $('#rep1').value;
+  state.report.s2 = $('#rep2').value;
+  state.report.s3 = $('#rep3').value;
+  state.report.savedAt = new Date().toISOString();
+  save();
+  syncMirrors();
+  $('#repSaved').textContent = '마지막 저장: ' + new Date(state.report.savedAt).toLocaleString('ko-KR');
+});
+$('#btnPrint').addEventListener('click', () => window.print());
+
+/* ───────────────────────── 충원계획 저장 ───────────────────────── */
+$('#btnPlanSave').addEventListener('click', () => {
+  state.settings.planCount = Math.max(0, Number($('#planCount').value) || 0);
+  save(); renderAll();
+});
+
+/* ───────────────────────── 백업/복원 ───────────────────────── */
+$('#btnBackup').addEventListener('click', () => {
+  const blob = new Blob([JSON.stringify(state, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = '인력현황_백업_' + iso(todayD()).replace(/-/g, '') + '.json';
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+$('#btnRestore').addEventListener('click', () => $('#jsonInput').click());
+$('#jsonInput').addEventListener('change', async (ev) => {
+  const f = ev.target.files[0];
+  if (!f) return;
+  try {
+    const data = JSON.parse(await f.text());
+    if (!Array.isArray(data.employees)) throw new Error('bad');
+    if (!confirm('백업 파일(' + data.employees.length + '명)로 현재 데이터를 교체할까요?')) { ev.target.value = ''; return; }
+    state.employees = data.employees;
+    Object.assign(state.settings, data.settings || {});
+    Object.assign(state.report, data.report || {});
+    state.sample = !!data.sample;
+    save(); renderAll();
+  } catch (e) { alert('백업 파일을 읽지 못했습니다. 이 대시보드에서 내보낸 JSON 파일인지 확인하세요.'); }
+  ev.target.value = '';
+});
+
+/* ───────────────────────── 샘플 배너 ───────────────────────── */
+$('#btnClearSample').addEventListener('click', () => {
+  if (!confirm('샘플 데이터를 모두 비울까요?')) return;
+  state.employees = [];
+  state.sample = false;
+  save(); renderAll();
+});
+
+/* ───────────────────────── 내비게이션 ───────────────────────── */
+const VIEW_META = {
+  dash:   ['인력현황 대시보드', '전사 인원 · 이직률 · 충원 현황'],
+  roster: ['직원 명부', '재직 · 퇴사자 통합 명부 관리'],
+  report: ['인력현황 보고', '대표이사 보고용 월간 문서']
+};
+document.querySelectorAll('.navbtn').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.navbtn').forEach(b => b.setAttribute('aria-selected', b === btn ? 'true' : 'false'));
+    ['dash','roster','report'].forEach(v => { $('#view-' + v).hidden = v !== btn.dataset.view; });
+    const meta = VIEW_META[btn.dataset.view];
+    $('#pageTitle').textContent = meta[0];
+    $('#pageSub').textContent = meta[1];
+    if (btn.dataset.view === 'dash') renderCharts(computeMetrics());  /* 탭 복귀 시 캔버스 리사이즈 보정 */
+  });
+});
+
+/* ───────────────────────── 렌더 ───────────────────────── */
+function renderAll(){
+  const m = computeMetrics();
+  renderKpis(m);
+  renderInsights(m);
+  renderCharts(m);
+  renderPlan(m);
+  renderMoves();
+  teamFilterOptions();
+  renderRoster();
+  renderReport(m);
+  $('#sampleBanner').hidden = !state.sample;
+}
+(function init(){
+  $('#teamList').innerHTML = TEAMS.map(t => '<option value="' + t + '">').join('');
+  $('#rankList').innerHTML = RANKS.map(r => '<option value="' + r + '">').join('');
+  $('#asof').textContent = kdate(todayD()) + ' 기준';
+  load();
+  renderAll();
+})();
+</script>
+</body>
+</html>
