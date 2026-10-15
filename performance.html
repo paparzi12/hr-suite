@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⑥ 성과평가·캘리브레이션</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="assets/base.css">
+<style>
+.ratioRow{display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end}
+.ratioRow .field{width:70px}
+.ratioRow .field input{text-align:right;font-variant-numeric:tabular-nums}
+.gchip{display:inline-block;min-width:26px;text-align:center;padding:2px 7px;border-radius:6px;font-size:.78rem;font-weight:800}
+.g-S{background:#e0ecf9;color:#1c5cab}.g-A{background:#e4f1ea;color:#1f7a4d}
+.g-B{background:#eef2f4;color:#5b6d7a}.g-C{background:#f8f0dc;color:#9a7417}.g-D{background:#f7e9ea;color:#b4434a}
+.mv{font-size:.75rem;font-weight:800;margin-left:4px}
+.mv.up{color:var(--pos)} .mv.dn{color:var(--neg)}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="mainwrap">
+    <header class="top" id="topbar"></header>
+    <main>
+      <div class="banner" id="sampleBanner" hidden>
+        <span>지금 보이는 데이터는 <b>샘플</b>입니다(가상 인물). 평가 점수를 등록하거나 엑셀로 업로드하면 팀 간 편차가 <b>Z→T점수로 자동 보정</b>되어 등급이 산출됩니다.</span>
+        <button class="btn" id="btnClearSample">샘플 비우기</button>
+      </div>
+
+      <div class="kpis" id="kpiGrid"></div>
+
+      <div class="grid">
+        <div class="panel w8">
+          <div class="panel-h"><h2>팀별 원점수 평균 vs 전사 평균</h2><span class="sub">전사 평균선 위 = 관대화, 아래 = 엄격화 경향 → T점수로 보정</span></div>
+          <div class="chartbox tall"><canvas id="chTeam"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>평가 설정</h2></div>
+          <div class="field" style="margin-bottom:10px"><label>평가 주기</label><input id="cycleInput"></div>
+          <label style="display:block;font-size:.79rem;font-weight:700;color:var(--ink2);margin-bottom:5px">등급 배분율 (%) — 합계 100</label>
+          <div class="ratioRow" id="ratioRow"></div>
+          <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+            <button class="btn sm primary" id="btnSettingSave">설정 저장</button>
+            <span style="font-size:.78rem;color:var(--ink3)" id="ratioSum"></span>
+          </div>
+          <p style="font-size:.78rem;color:var(--ink3);margin-top:12px;line-height:1.6">
+            T점수 = 50 + 10 × (개인점수 − 팀평균) / 팀표준편차.<br>
+            전사 T점수 순위에 배분율을 적용해 등급을 확정합니다.
+          </p>
+        </div>
+        <div class="panel w6">
+          <div class="panel-h"><h2>등급 분포 — 목표 vs 산출</h2></div>
+          <div class="chartbox"><canvas id="chGrade"></canvas></div>
+        </div>
+        <div class="panel w6">
+          <div class="panel-h"><h2>T점수 분포</h2><span class="sub">전사 표준화 후</span></div>
+          <div class="chartbox"><canvas id="chHist"></canvas></div>
+        </div>
+      </div>
+
+      <div class="toolrow" style="margin-top:18px">
+        <input type="search" id="q" placeholder="성명 검색">
+        <select id="fTeam"></select>
+        <span class="count" id="rowCount"></span>
+      </div>
+      <div class="tablewrap">
+        <table class="tbl">
+          <thead><tr>
+            <th class="r">순위</th><th>성명</th><th>소속</th><th>직급</th>
+            <th class="r">원점수</th><th class="r">팀 Z</th><th class="r">T점수</th>
+            <th>보정 전</th><th>확정 등급</th><th>관리</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+        </table>
+        <div class="empty" id="emptyMsg" hidden>평가 데이터가 없습니다. <b>대상자 추가</b> 또는 엑셀 업로드로 시작하세요.</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 대상자 모달 -->
+<div class="overlay" id="overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="modalTitle">평가 대상자 추가</h2>
+    <form id="form">
+      <div class="formgrid">
+        <div class="field"><label>성명 <em>*</em></label><input id="iName" required></div>
+        <div class="field"><label>소속 <em>*</em></label><input id="iTeam" list="teamList" required></div>
+        <div class="field"><label>직급</label><input id="iRank"></div>
+        <div class="field"><label>원점수 (0~100) <em>*</em></label><input type="number" id="iRaw" min="0" max="100" step="0.5" required></div>
+      </div>
+      <div class="modalfoot">
+        <button type="button" class="btn" id="btnClose">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+<datalist id="teamList"></datalist>
+
+<script src="assets/core.js"></script>
+<script>
+/* ============================================================
+ * performance — ⑥ 성과평가·캘리브레이션 대시보드
+ * 저장: localStorage kfs_perf_v1
+ * 모델: rows[{id,name,team,rank,raw}], ratios{S,A,B,C,D}, cycle
+ * 로직: 팀별 Z표준화 → T점수(50+10Z) → 전사 순위에
+ *       배분율 적용해 등급 확정, 보정 전(원점수 순위) 등급과 비교
+ * ========================================================== */
+const { $, esc, uid, fmt, d, C, ui, chart, xl } = KFS;
+const GRADES = ['S','A','B','C','D'];
+const DB = KFS.store('kfs_perf_v1');
+let state = DB.load({ rows: [], ratios: { S:10, A:20, B:50, C:15, D:5 }, cycle: '2026년 하반기', sample: false });
+let editingId = null;
+
+/* ───── 샘플 (팀별 관대/엄격 편차 포함) ───── */
+function seed(){
+  const S = [
+    ['윤상민','영업1팀','선임',78],['한가영','영업1팀','매니저',83],
+    ['조현성','영업2팀','책임',74],['임다혜','영업2팀','매니저',80],
+    ['서준호','경영지원팀','책임',72],['문지현','경영지원팀','선임',81],['백승아','경영지원팀','매니저',77],
+    ['오민재','구매팀','책임',79],['황보라','구매팀','선임',84],
+    ['전태규','생산팀','수석',86],['남기원','생산팀','책임',82],['유성재','생산팀','선임',88],['고은비','생산팀','매니저',79],['차민호','생산팀','매니저',75],
+    ['노현우','스택개발팀','수석',68],['양지훈','스택개발팀','책임',74],['구세라','스택개발팀','선임',61],['두경민','스택개발팀','연구원',71],
+    ['하정민','시스템개발팀','책임',77],['손미경','시스템개발팀','선임',72],['변성호','시스템개발팀','선임',80],['심재욱','시스템개발팀','연구원',66],
+    ['공유진','제어개발팀','책임',75],['설하윤','제어개발팀','선임',70],['반도윤','제어개발팀','연구원',82]
+  ];
+  state.rows = S.map(r => ({ id: uid(), name:r[0], team:r[1], rank:r[2], raw:r[3] }));
+  state.sample = true;
+}
+
+/* ───── 캘리브레이션 계산 ───── */
+function gradeByRatio(sorted){
+  const n = sorted.length, out = new Map();
+  let cum = 0, idx = 0;
+  GRADES.forEach(g => {
+    cum += (+state.ratios[g] || 0);
+    const upto = Math.round(n * cum / 100);
+    while (idx < upto && idx < n) { out.set(sorted[idx].id, g); idx++; }
+  });
+  while (idx < n) { out.set(sorted[idx].id, 'D'); idx++; }   /* 배분율 합계 오차 보정 */
+  return out;
+}
+function compute(){
+  const rows = state.rows.filter(r => r.raw !== '' && r.raw != null);
+  /* 팀 통계 */
+  const teams = {};
+  rows.forEach(r => (teams[r.team] = teams[r.team] || []).push(+r.raw));
+  const stat = {};
+  Object.keys(teams).forEach(t => {
+    const v = teams[t], mu = v.reduce((a,b)=>a+b,0) / v.length;
+    const sd = Math.sqrt(v.reduce((a,b)=>a+(b-mu)*(b-mu),0) / v.length);
+    stat[t] = { mu, sd, n: v.length };
+  });
+  const calc = rows.map(r => {
+    const s = stat[r.team];
+    const z = s.sd > 0 ? (+r.raw - s.mu) / s.sd : 0;
+    return Object.assign({}, r, { z, t: 50 + 10 * z });
+  });
+  const byT   = calc.slice().sort((a,b)=> b.t - a.t || b.raw - a.raw || a.name.localeCompare(b.name));
+  const byRaw = calc.slice().sort((a,b)=> b.raw - a.raw || a.name.localeCompare(b.name));
+  const gT = gradeByRatio(byT), gR = gradeByRatio(byRaw);
+  byT.forEach((r, i) => { r.rankNo = i + 1; r.grade = gT.get(r.id); r.rawGrade = gR.get(r.id); });
+  const changed = byT.filter(r => r.grade !== r.rawGrade).length;
+  const avg = calc.length ? calc.reduce((s,r)=>s+(+r.raw),0) / calc.length : 0;
+  const mus = Object.values(stat).map(s=>s.mu);
+  const gap = mus.length ? Math.max(...mus) - Math.min(...mus) : 0;
+  /* 목표/산출 분포 */
+  const n = calc.length;
+  const target = GRADES.map(g => Math.round(n * (+state.ratios[g]||0) / 100));
+  const actual = GRADES.map(g => byT.filter(r => r.grade === g).length);
+  const match = n ? 100 - target.reduce((s,t,i)=>s+Math.abs(t-actual[i]),0) / (2*n) * 100 : 0;
+  return { byT, stat, changed, avg, gap, target, actual, n, match };
+}
+
+/* ───── 렌더 ───── */
+function renderKpis(m){
+  ui.kpis('#kpiGrid', [
+    { l:'평가 대상', v:m.n, u:'명', cap: esc(state.cycle) },
+    { l:'전사 평균 (원점수)', v:m.avg.toFixed(1), u:'점', cap:'보정 전' },
+    { l:'팀 평균 최대 격차', v:m.gap.toFixed(1), u:'점', cap:'관대화·엄격화 경향 지표' },
+    { l:'보정 등급 변동', v:m.changed, u:'명', cap:'원점수 순위 대비 등급 변경' },
+    { l:'목표분포 일치율', v:m.match.toFixed(0), u:'%', cap:'배분율 vs 산출 분포' }
+  ]);
+}
+function renderCharts(m){
+  if (!chart.ok) return;
+  /* 팀별 원점수 평균 vs 전사 평균 기준선 — 관대·엄격화 진단 */
+  const teams = Object.keys(m.stat);
+  chart.mk('chTeam', {
+    data:{ labels: teams, datasets:[
+      { type:'bar', label:'팀 원점수 평균', data: teams.map(t=>+m.stat[t].mu.toFixed(1)),
+        backgroundColor: teams.map(t => m.stat[t].mu >= m.avg ? C.CAT[0] : C.CAT[1]),
+        borderRadius:3, barPercentage:.55, categoryPercentage:.75, order:2 },
+      { type:'line', label:'전사 평균 ' + m.avg.toFixed(1) + '점', data: teams.map(()=>+m.avg.toFixed(1)),
+        borderColor:C.INK, borderWidth:1.5, borderDash:[6,4], pointRadius:0, order:1 }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:14 } },
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ position:'bottom', labels:{ boxWidth:11, boxHeight:11, font:{ size:11.5 },
+          filter: (item) => true } },
+        datalabels: Object.assign({}, chart.dl.top, {
+          display: ctx => ctx.dataset.type === 'bar', formatter: v => v.toFixed(0) }),
+        tooltip:{ callbacks:{ label(ctx){
+          if (ctx.dataset.type === 'line') return ' 전사 평균 ' + ctx.parsed.y.toFixed(1) + '점';
+          const t = teams[ctx.dataIndex], gap = m.stat[t].mu - m.avg;
+          return ' 팀 평균 ' + ctx.parsed.y.toFixed(1) + '점 (전사 대비 ' + (gap >= 0 ? '+' : '') + gap.toFixed(1) + ')';
+        } } }
+      },
+      scales:{ y:{ suggestedMin: Math.max(0, m.avg - 25), suggestedMax: m.avg + 20, ticks:{ font:{ size:10.5 } } },
+               x:{ grid:{ display:false }, ticks:{ font:{ size:10.5 } } } }
+    }
+  });
+  chart.mk('chGrade', {
+    type:'bar',
+    data:{ labels: GRADES, datasets:[
+      { label:'목표', data:m.target, backgroundColor:C.CAT[0], borderRadius:3, barPercentage:.42, categoryPercentage:.68 },
+      { label:'산출', data:m.actual, backgroundColor:C.CAT[1], borderRadius:3, barPercentage:.42, categoryPercentage:.68 }
+    ]},
+    options:{
+      responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:14 } },
+      plugins:{ legend:{ position:'bottom', labels:{ boxWidth:11, boxHeight:11, font:{ size:11.5 } } },
+        datalabels: chart.dl.top,
+        tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.dataset.label + ' ' + ctx.parsed.y + '명'; } } } },
+      scales:{ y:{ display:false, beginAtZero:true, suggestedMax:Math.max(1,...m.target,...m.actual)+2 },
+               x:{ grid:{ display:false } } }
+    }
+  });
+  const bins = ['35 미만','35~45','45~55','55~65','65 이상'];
+  const hist = [0,0,0,0,0];
+  m.byT.forEach(r => {
+    if (r.t < 35) hist[0]++; else if (r.t < 45) hist[1]++;
+    else if (r.t < 55) hist[2]++; else if (r.t < 65) hist[3]++; else hist[4]++;
+  });
+  chart.mk('chHist', {
+    type:'bar',
+    data:{ labels:bins, datasets:[{ data:hist, backgroundColor:C.BRAND, borderRadius:{ topLeft:3, topRight:3 }, barPercentage:.6 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:16 } },
+      plugins:{ legend:{ display:false }, datalabels: chart.dl.top,
+        tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.parsed.y + '명'; } } } },
+      scales:{ y:{ display:false, beginAtZero:true, suggestedMax:Math.max(1,...hist)+2 },
+               x:{ grid:{ display:false }, ticks:{ font:{ size:10.5 } } } }
+    }
+  });
+}
+function renderTable(m){
+  const q = $('#q').value.trim().toLowerCase();
+  const ft = $('#fTeam').value;
+  let list = m.byT;
+  if (q) list = list.filter(r => r.name.toLowerCase().includes(q));
+  if (ft) list = list.filter(r => r.team === ft);
+  $('#rowCount').textContent = '표시 ' + list.length + '명 / 대상 ' + m.n + '명';
+  $('#emptyMsg').hidden = state.rows.length > 0;
+  const gchip = g => '<span class="gchip g-' + g + '">' + g + '</span>';
+  $('#tbody').innerHTML = list.map(r => {
+    const gi = GRADES.indexOf(r.grade), ri = GRADES.indexOf(r.rawGrade);
+    const mv = gi < ri ? '<span class="mv up">▲</span>' : gi > ri ? '<span class="mv dn">▼</span>' : '';
+    return '<tr><td class="r">' + r.rankNo + '</td><td><b>' + esc(r.name) + '</b></td><td>' + esc(r.team) + '</td><td>' + esc(r.rank || '') + '</td>' +
+      '<td class="r">' + (+r.raw).toFixed(1) + '</td><td class="r">' + r.z.toFixed(2) + '</td><td class="r"><b>' + r.t.toFixed(1) + '</b></td>' +
+      '<td>' + gchip(r.rawGrade) + '</td><td>' + gchip(r.grade) + mv + '</td>' +
+      '<td><button class="rowbtn" data-act="edit" data-id="' + r.id + '">수정</button> <button class="rowbtn danger" data-act="del" data-id="' + r.id + '">삭제</button></td></tr>';
+  }).join('');
+}
+function renderSettings(){
+  $('#cycleInput').value = state.cycle;
+  $('#ratioRow').innerHTML = GRADES.map(g =>
+    '<div class="field"><label>' + g + ' 등급</label><input type="number" min="0" max="100" data-ratio="' + g + '" value="' + (+state.ratios[g]||0) + '"></div>'
+  ).join('');
+  updateRatioSum();
+}
+function updateRatioSum(){
+  const sum = GRADES.reduce((s,g)=>s+(+document.querySelector('[data-ratio="'+g+'"]').value||0),0);
+  $('#ratioSum').textContent = '합계 ' + sum + '%' + (sum !== 100 ? ' — 100이 되도록 조정하세요' : '');
+}
+function renderFilters(){
+  const teams = [...new Set(state.rows.map(r=>r.team).filter(Boolean))];
+  const cur = $('#fTeam').value;
+  $('#fTeam').innerHTML = '<option value="">소속 전체</option>' + teams.map(t=>'<option>'+esc(t)+'</option>').join('');
+  if (teams.includes(cur)) $('#fTeam').value = cur;
+  $('#teamList').innerHTML = teams.map(t=>'<option value="'+esc(t)+'">').join('');
+}
+function renderAll(){
+  const m = compute();
+  renderKpis(m); renderCharts(m); renderFilters(); renderTable(m);
+  $('#sampleBanner').hidden = !state.sample;
+}
+
+/* ───── 셸 + 이벤트 ───── */
+KFS.shell({
+  active:'performance', title:'성과평가·캘리브레이션', sub:'Z→T점수 표준화 · 상대등급 산출 · 팀 간 편차 보정',
+  actions:[{ id:'btnAdd', label:'대상자 추가', primary:true }],
+  sideActions:[
+    { id:'btnUpload', label:'점수 엑셀 업로드' },
+    { id:'btnTemplate', label:'업로드 양식 받기' },
+    { id:'btnExport', label:'결과 다운로드' }
+  ]
+});
+const modal = ui.modal('#overlay');
+function openEdit(r){
+  editingId = r ? r.id : null;
+  $('#modalTitle').textContent = r ? '평가 대상자 수정' : '평가 대상자 추가';
+  $('#iName').value = r ? r.name : '';
+  $('#iTeam').value = r ? r.team : '';
+  $('#iRank').value = r ? (r.rank || '') : '';
+  $('#iRaw').value = r ? r.raw : '';
+  modal.open(); $('#iName').focus();
+}
+$('#btnAdd').addEventListener('click', () => openEdit(null));
+$('#btnClose').addEventListener('click', modal.close);
+$('#form').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const rec = { name:$('#iName').value.trim(), team:$('#iTeam').value.trim(), rank:$('#iRank').value.trim(), raw:+$('#iRaw').value };
+  if (!rec.name || !rec.team || isNaN(rec.raw)) { alert('성명·소속·원점수는 필수입니다.'); return; }
+  if (editingId) Object.assign(state.rows.find(r=>r.id===editingId), rec);
+  else { state.rows.push(Object.assign({ id: uid() }, rec)); state.sample = false; }
+  DB.save(state); modal.close(); renderAll();
+});
+$('#tbody').addEventListener('click', ev => {
+  const btn = ev.target.closest('button[data-act]'); if (!btn) return;
+  const r = state.rows.find(x=>x.id===btn.dataset.id); if (!r) return;
+  if (btn.dataset.act === 'edit') openEdit(r);
+  if (btn.dataset.act === 'del' && confirm(r.name + ' 님을 평가 대상에서 삭제할까요?')) {
+    state.rows = state.rows.filter(x=>x.id!==r.id); DB.save(state); renderAll();
+  }
+});
+$('#ratioRow').addEventListener('input', updateRatioSum);
+$('#btnSettingSave').addEventListener('click', () => {
+  const sum = GRADES.reduce((s,g)=>s+(+document.querySelector('[data-ratio="'+g+'"]').value||0),0);
+  if (sum !== 100) { alert('등급 배분율 합계가 100%가 되어야 합니다. (현재 ' + sum + '%)'); return; }
+  GRADES.forEach(g => state.ratios[g] = +document.querySelector('[data-ratio="'+g+'"]').value||0);
+  state.cycle = $('#cycleInput').value.trim() || state.cycle;
+  DB.save(state); renderAll();
+});
+['q','fTeam'].forEach(id => $('#'+id).addEventListener('input', () => renderTable(compute())));
+$('#btnClearSample').addEventListener('click', () => {
+  if (!confirm('샘플 데이터를 모두 비울까요?')) return;
+  state.rows = []; state.sample = false; DB.save(state); renderAll();
+});
+
+/* ───── 엑셀 IO ───── */
+let fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = '.xlsx,.xls,.csv';
+$('#btnUpload').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  try {
+    const rows = await xl.read(f);
+    const list = []; let skipped = 0;
+    rows.forEach(r => {
+      const name = String(xl.pick(r, ['성명','이름','name'])).trim();
+      const team = String(xl.pick(r, ['소속','팀','team'])).trim();
+      const raw = +xl.pick(r, ['원점수','점수','raw']);
+      if (!name || !team || isNaN(raw)) { skipped++; return; }
+      list.push({ id: uid(), name, team, rank: String(xl.pick(r, ['직급','rank'])).trim(), raw });
+    });
+    if (!list.length) { alert('불러올 데이터가 없습니다. 성명·소속·원점수 열을 확인하세요.'); ev.target.value=''; return; }
+    const replace = state.rows.length === 0 ? true :
+      confirm(list.length + '명을 불러왔습니다.\n\n[확인] 기존 명단 교체  [취소] 추가');
+    state.rows = replace ? list : state.rows.concat(list);
+    state.sample = false; DB.save(state); renderAll();
+    alert('업로드 완료: ' + list.length + '명' + (skipped ? ' / ' + skipped + '행 제외' : ''));
+  } catch (e) { alert('파일을 읽지 못했습니다. .xlsx 형식인지 확인하세요.'); }
+  ev.target.value = '';
+});
+$('#btnTemplate').addEventListener('click', () => {
+  xl.down([{ 성명:'홍길동', 소속:'생산팀', 직급:'선임', 원점수:84 }],
+    { headers:['성명','소속','직급','원점수'], widths:[9,12,8,8], sheet:'평가점수', file:'평가점수_업로드양식.xlsx' });
+});
+$('#btnExport').addEventListener('click', () => {
+  const m = compute();
+  if (!m.n) { alert('내보낼 데이터가 없습니다.'); return; }
+  xl.down(m.byT.map(r => ({ 순위:r.rankNo, 성명:r.name, 소속:r.team, 직급:r.rank, 원점수:r.raw,
+    'Z점수':+r.z.toFixed(2), 'T점수':+r.t.toFixed(1), 보정전등급:r.rawGrade, 확정등급:r.grade })),
+    { headers:['순위','성명','소속','직급','원점수','Z점수','T점수','보정전등급','확정등급'],
+      widths:[6,9,12,8,8,8,8,10,10], sheet:'평가결과', file:'평가결과_' + d.iso(d.today()).replace(/-/g,'') + '.xlsx' });
+});
+
+/* ───── 초기화 ───── */
+if (!state.rows.length && !localStorage.getItem('kfs_perf_v1')) { seed(); DB.save(state); }
+renderSettings(); renderAll();
+</script>
+</body>
+</html>

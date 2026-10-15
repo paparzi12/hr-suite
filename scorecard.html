@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>⑩ 경영진 HR 종합</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<link rel="stylesheet" href="assets/base.css">
+<style>
+.mod .mline{display:flex;align-items:baseline;gap:8px;font-size:.88rem;padding:3.5px 0}
+.mod .mline .k{color:var(--ink2);font-size:.82rem}
+.mod .mline .v{font-weight:800;font-variant-numeric:tabular-nums;margin-left:auto}
+.mod .mhead{display:flex;align-items:center;gap:8px;margin-bottom:8px}
+.mod .mhead h2{font-size:.94rem;font-weight:800}
+.mod .mhead .lt{margin-left:auto}
+.mod .go{margin-top:10px;border-top:1px solid var(--hairline);padding-top:9px}
+.mod .go a{font-size:.8rem;font-weight:700;text-decoration:none}
+.mod .nod{font-size:.83rem;color:var(--ink3);padding:8px 0;line-height:1.6}
+.cmt{width:100%;min-height:96px;resize:vertical;padding:11px 13px;font:inherit;font-size:.9rem;border:1px solid var(--line);border-radius:7px;line-height:1.6}
+.pm{display:none}
+@media print{ .cmt{display:none} .pm{display:block;border:1px solid #bbb;border-radius:6px;padding:10px 13px;white-space:pre-wrap;font-size:.9rem} }
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="mainwrap">
+    <header class="top" id="topbar"></header>
+    <main>
+      <div class="banner">
+        <span>각 대시보드의 저장 데이터를 <b>자동 집계</b>한 경영진 보고 화면입니다. 지표가 비어 있으면 해당 대시보드에서 데이터를 입력하세요. (같은 브라우저·도메인 기준)</span>
+      </div>
+
+      <div class="kpis" id="kpiGrid"></div>
+
+      <div id="modGrid" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(272px,1fr));gap:14px;margin-top:14px"></div>
+
+      <div class="grid">
+        <div class="panel w8">
+          <div class="panel-h"><h2>월간 스냅샷 이력</h2><span class="sub">보고 시점 지표 고정 기록</span>
+            <span class="end"><button class="btn sm primary" id="btnSnap">이달 스냅샷 저장</button></span>
+          </div>
+          <div style="overflow:auto;max-height:300px">
+            <table class="tbl">
+              <thead><tr><th>월</th><th class="r">재직</th><th class="r">이직률</th><th class="r">당월 인건비</th><th class="r">법정 이수율</th><th class="r">진행 이슈</th><th>저장</th><th></th></tr></thead>
+              <tbody id="snapBody"></tbody>
+            </table>
+          </div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>이직률 추이</h2><span class="sub">스냅샷 기준</span></div>
+          <div class="chartbox"><canvas id="chSnap"></canvas></div>
+          <div class="nodata" id="noSnap" hidden>스냅샷을 2개 이상 저장하면<br>추이가 표시됩니다.</div>
+        </div>
+      </div>
+
+      <div class="panel full" style="margin-top:14px">
+        <div class="panel-h"><h2>종합 의견 (경영지원팀장)</h2>
+          <span class="end" style="display:flex;gap:8px;align-items:center">
+            <span style="font-size:.8rem;color:var(--ink3)" id="cmtSaved"></span>
+            <button class="btn sm primary" id="btnCmtSave">저장</button>
+            <button class="btn sm" id="btnPrint">인쇄</button>
+          </span>
+        </div>
+        <textarea class="cmt" id="comment" placeholder="예) 이직률 안정세 유지. 인건비는 경과율 수준 집행 중이며, 통상임금 시정 건은 11월 보고 예정."></textarea>
+        <div class="pm" id="cmtMirror"></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/core.js"></script>
+<script>
+/* ============================================================
+ * scorecard — ⑩ 경영진 HR 종합 (Executive Scorecard)
+ * 데이터 소스(읽기 전용 집계):
+ *   ① kfc_headcount_v1  ③ kfs_payroll_v1  ④ kfs_recruit_v1
+ *   ⑥ kfs_perf_v1  ⑦ kfs_retention_v1  ⑧ kfs_training_v1  ⑨ kfs_compliance_v1
+ * 저장: kfs_scorecard_v1 — 월간 스냅샷 이력 + 종합 의견
+ * ========================================================== */
+const { $, esc, uid, fmt, eok, d, C, ui, chart, readRaw } = KFS;
+const DB = KFS.store('kfs_scorecard_v1');
+let state = DB.load({ history: [], comment: '', savedAt: null });
+
+/* ───── 소스별 집계 ───── */
+function calcHead(){
+  const ext = KFS.ext.roster();
+  if (!ext.ok) return { ok:false };
+  const now = d.today(), emps = ext.employees;
+  const active = emps.filter(e => ext.isActiveAt(e, now)).length;
+  const prevEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+  const prev = emps.filter(e => ext.isActiveAt(e, prevEnd)).length;
+  let sum = 0;
+  for (let i = 11; i >= 0; i--) {
+    const me = new Date(now.getFullYear(), now.getMonth() - i + 1, 0);
+    sum += emps.filter(e => ext.isActiveAt(e, me > now ? now : me)).length;
+  }
+  const from = new Date(now.getFullYear(), now.getMonth() - 11, 1);
+  const exits = emps.filter(e => { const l = d.toD(e.leaveDate); return l && l >= from && l <= now; }).length;
+  const turnover = sum ? +(exits / (sum / 12) * 100).toFixed(1) : 0;
+  return { ok:true, active, delta: active - prev, turnover, exits,
+    probation: emps.filter(e => ext.isActiveAt(e, now) && e.empType === '수습').length, sample: ext.sample };
+}
+function calcPayroll(){
+  const raw = readRaw('kfs_payroll_v1');
+  if (!raw || !Array.isArray(raw.rows) || !raw.rows.length) return { ok:false };
+  const total = r => (+r.base||0)+(+r.allow||0)+(+r.ot||0)+(+r.bonus||0)+(+r.social||0)+(+r.sev||0);
+  const months = [...new Set(raw.rows.map(r=>r.month))].sort();
+  const curKey = months[months.length-1];
+  const cur = raw.rows.filter(r=>r.month===curKey).reduce((s,r)=>s+total(r),0);
+  const y = (raw.budget && raw.budget.year) || d.today().getFullYear();
+  const ytd = raw.rows.filter(r=>r.month.startsWith(y+'-')).reduce((s,r)=>s+total(r),0);
+  const budget = raw.budget ? +raw.budget.amount||0 : 0;
+  const rate = budget ? ytd / budget * 100 : null;
+  const elapsed = (d.today().getMonth()+1) / 12 * 100;
+  return { ok:true, curKey, cur, ytd, budget, rate, elapsed, sample: !!raw.sample };
+}
+function calcRecruit(){
+  const raw = readRaw('kfs_recruit_v1');
+  if (!raw || !Array.isArray(raw.candidates)) return { ok:false };
+  const yr = d.today().getFullYear();
+  const openPos = (raw.positions||[]).filter(p=>p.status==='진행').length;
+  const ofYear = raw.candidates.filter(c=>(c.appliedDate||'').startsWith(yr+'-'));
+  const hired = ofYear.filter(c=>c.stage==='입사');
+  const tth = hired.map(c=>Math.round((d.toD(c.stageDate)-d.toD(c.appliedDate))/86400000)).filter(x=>x>=0);
+  return { ok:true, openPos, applicants: ofYear.length, hired: hired.length,
+    tth: tth.length ? Math.round(tth.reduce((a,b)=>a+b,0)/tth.length) : null, sample: !!raw.sample };
+}
+function calcPerf(){
+  const raw = readRaw('kfs_perf_v1');
+  if (!raw || !Array.isArray(raw.rows) || !raw.rows.length) return { ok:false };
+  const teams = {};
+  raw.rows.forEach(r => (teams[r.team] = teams[r.team] || []).push(+r.raw));
+  const mus = Object.values(teams).map(v => v.reduce((a,b)=>a+b,0)/v.length);
+  return { ok:true, n: raw.rows.length, cycle: raw.cycle || '',
+    avg: +(raw.rows.reduce((s,r)=>s+(+r.raw),0)/raw.rows.length).toFixed(1),
+    gap: mus.length ? +(Math.max(...mus)-Math.min(...mus)).toFixed(1) : 0, sample: !!raw.sample };
+}
+function calcRetention(){
+  const raw = readRaw('kfs_retention_v1');
+  const watch = raw && Array.isArray(raw.watch) ? raw.watch : [];
+  const on = watch.filter(w=>w.status==='관리중');
+  return { ok: watch.length > 0, managing: on.length, high: on.filter(w=>w.risk==='고').length };
+}
+function calcTraining(head){
+  const raw = readRaw('kfs_training_v1');
+  if (!raw || !raw.done || !raw.courses) return { ok:false };
+  const nCourses = raw.courses.length;
+  const doneN = Object.keys(raw.done).length;
+  /* 분모: ① 연동 시 재직자 수, 아니면 이수기록 상 인원 수 */
+  const keys = new Set(Object.keys(raw.done).map(k => k.split('|')[0]));
+  const nEmp = head.ok ? head.active : keys.size;
+  const totalCells = nEmp * nCourses;
+  const rate = totalCells ? Math.min(100, Math.round(doneN / totalCells * 100)) : null;
+  const yr = d.today().getFullYear();
+  const hours = (raw.logs||[]).filter(l=>(l.date||'').startsWith(yr+'-')).reduce((s,l)=>s+(+l.hours||0),0);
+  return { ok: rate !== null, rate, nEmp, nCourses, hours, sample: !!raw.sample };
+}
+function calcCompliance(){
+  const raw = readRaw('kfs_compliance_v1');
+  if (!raw || !Array.isArray(raw.issues)) return { ok:false };
+  const opens = raw.issues.filter(i=>i.status!=='완료');
+  const due = opens.filter(i => { const dd = d.dday(i.due); return dd !== null && dd <= 14; });
+  return { ok:true, open: opens.length, high: opens.filter(i=>i.sev==='상').length, dueSoon: due.length, sample: !!raw.sample };
+}
+
+/* ───── 신호등 규칙 ───── */
+const L = {
+  turnover: v => v == null ? ['na','데이터 없음'] : v < 12 ? ['good','양호'] : v < 20 ? ['warn','주의'] : ['bad','높음'],
+  budget: (rate, elapsed) => rate == null ? ['na','예산 미설정'] : (rate - elapsed) <= 5 ? ['good','정상'] : (rate - elapsed) <= 12 ? ['warn','초과 주의'] : ['bad','초과'],
+  train: v => v == null ? ['na','데이터 없음'] : v >= 95 ? ['good','양호'] : v >= 80 ? ['warn','보완 필요'] : ['bad','미흡'],
+  issues: h => h == null ? ['na','데이터 없음'] : h === 0 ? ['good','안정'] : h <= 2 ? ['warn','관리 필요'] : ['bad','집중 관리'],
+  tth: v => v == null ? ['na','실적 없음'] : v <= 45 ? ['good','양호'] : v <= 70 ? ['warn','지연'] : ['bad','장기화'],
+  gap: v => v == null ? ['na','데이터 없음'] : v <= 6 ? ['good','균형'] : v <= 12 ? ['warn','편차 주의'] : ['bad','편차 큼']
+};
+const lt = (pair) => ui.light(pair[0], pair[1]);
+
+/* ───── 렌더 ───── */
+let M = {};
+function renderKpis(){
+  const { head, pay, train, comp } = M;
+  ui.kpis('#kpiGrid', [
+    { l:'재직 인원', v: head.ok ? head.active : '—', u: head.ok ? '명' : '', p: head.ok ? ui.pill(head.delta,'명') : '', cap: head.ok ? '전월 말 대비 · 수습 ' + head.probation + '명' : '① 인력현황 연동 필요' },
+    { l:'이직률 (12개월)', v: head.ok ? head.turnover.toFixed(1) : '—', u: head.ok ? '%' : '', cap: head.ok ? lt(L.turnover(head.turnover)) : '① 인력현황 연동 필요' },
+    { l:'당월 인건비', v: pay.ok ? eok(pay.cur) : '—', cap: pay.ok ? (pay.curKey + ' · ' + lt(L.budget(pay.rate, pay.elapsed))) : '③ 인건비 입력 필요' },
+    { l:'법정교육 이수율', v: train.ok ? train.rate : '—', u: train.ok ? '%' : '', cap: train.ok ? lt(L.train(train.rate)) : '⑧ 교육 데이터 필요' },
+    { l:'진행 중 노무 이슈', v: comp.ok ? comp.open : '—', u: comp.ok ? '건' : '', cap: comp.ok ? ('고위험 ' + comp.high + '건 · ' + lt(L.issues(comp.high))) : '⑨ 컴플라이언스 입력 필요' }
+  ]);
+}
+function modCard(title, href, light, lines, missing){
+  const body = missing
+    ? '<div class="nod">' + missing + '</div>'
+    : lines.map(x => '<div class="mline"><span class="k">' + x[0] + '</span><span class="v">' + x[1] + '</span></div>').join('');
+  return '<div class="panel mod" style="grid-column:auto"><div class="mhead"><h2>' + title + '</h2>' + (light || '') + '</div>' + body +
+    (href ? '<div class="go"><a href="' + href + '">대시보드 열기 →</a></div>' : '') + '</div>';
+}
+function renderMods(){
+  const { head, pay, rec, perf, ret, train, comp } = M;
+  const cards = [];
+  cards.push(modCard('① 인력현황', '인력현황_대시보드.html',
+    head.ok ? lt(L.turnover(head.turnover)) : lt(['na','미연동']),
+    head.ok ? [['재직 인원', head.active + '명'],['12개월 퇴사', head.exits + '명'],['이직률', head.turnover.toFixed(1) + '%']] : null,
+    head.ok ? null : '인력현황 대시보드를 같은 도메인에 배포하고 명부를 입력하면 자동 집계됩니다.'));
+  cards.push(modCard('② 근태·주52시간', null,
+    lt(['na','별도 운영']), null,
+    '기존 근태 캘린더 대시보드에서 운영 중입니다. 주52시간·야근·특근 지표는 해당 대시보드를 참조하세요.'));
+  cards.push(modCard('③ 인건비·보상', 'payroll.html',
+    pay.ok ? lt(L.budget(pay.rate, pay.elapsed)) : lt(['na','데이터 없음']),
+    pay.ok ? [['당월 총액', eok(pay.cur)],['연 누계', eok(pay.ytd)],['예산 집행률', pay.rate == null ? '예산 미설정' : pay.rate.toFixed(0) + '% / 경과 ' + pay.elapsed.toFixed(0) + '%']] : null,
+    pay.ok ? null : '월별 인건비를 입력하면 집행률이 집계됩니다.'));
+  cards.push(modCard('④ 채용', 'recruit.html',
+    rec.ok ? lt(L.tth(rec.tth)) : lt(['na','데이터 없음']),
+    rec.ok ? [['진행 포지션', rec.openPos + '건'],['올해 지원 / 입사', rec.applicants + ' / ' + rec.hired + '명'],['평균 소요', rec.tth == null ? '실적 없음' : rec.tth + '일']] : null,
+    rec.ok ? null : '포지션·후보자를 등록하면 파이프라인이 집계됩니다.'));
+  cards.push(modCard('⑥ 성과평가', 'performance.html',
+    perf.ok ? lt(L.gap(perf.gap)) : lt(['na','데이터 없음']),
+    perf.ok ? [['평가 대상', perf.n + '명'],['전사 평균', perf.avg + '점'],['팀 평균 격차', perf.gap + '점']] : null,
+    perf.ok ? null : '평가 점수를 입력하면 캘리브레이션 결과가 집계됩니다.'));
+  cards.push(modCard('⑦ 리텐션', 'retention.html',
+    ret.ok ? lt(ret.high ? (ret.high > 1 ? ['bad','집중 관리'] : ['warn','관리 필요']) : ['good','안정']) : lt(['na','대상 없음']),
+    ret.ok ? [['이탈 위험 관리', ret.managing + '명'],['고위험', ret.high + '명']] : null,
+    ret.ok ? null : '이탈 위험군을 등록하면 리스크가 집계됩니다.'));
+  cards.push(modCard('⑧ 교육', 'training.html',
+    train.ok ? lt(L.train(train.rate)) : lt(['na','데이터 없음']),
+    train.ok ? [['법정 이수율', train.rate + '%'],['대상 × 과정', train.nEmp + '명 × ' + train.nCourses],['올해 직무교육', fmt(train.hours) + 'h']] : null,
+    train.ok ? null : '법정교육 매트릭스를 입력하면 이수율이 집계됩니다.'));
+  cards.push(modCard('⑨ 컴플라이언스', 'compliance.html',
+    comp.ok ? lt(L.issues(comp.high)) : lt(['na','데이터 없음']),
+    comp.ok ? [['진행 중 이슈', comp.open + '건'],['고위험', comp.high + '건'],['기한 임박(D-14)', comp.dueSoon + '건']] : null,
+    comp.ok ? null : '노무 이슈를 등록하면 리스크가 집계됩니다.'));
+  $('#modGrid').innerHTML = cards.join('');
+}
+function renderSnaps(){
+  const list = state.history.slice().sort((a,b)=>b.month.localeCompare(a.month));
+  $('#snapBody').innerHTML = list.map(s =>
+    '<tr><td><b>' + esc(s.month) + '</b></td><td class="r">' + (s.head ?? '—') + '</td>' +
+    '<td class="r">' + (s.turnover == null ? '—' : s.turnover + '%') + '</td>' +
+    '<td class="r">' + (s.payroll == null ? '—' : eok(s.payroll)) + '</td>' +
+    '<td class="r">' + (s.train == null ? '—' : s.train + '%') + '</td>' +
+    '<td class="r">' + (s.issues == null ? '—' : s.issues + '건') + '</td>' +
+    '<td style="font-size:.78rem;color:var(--ink3)">' + esc((s.savedAt || '').slice(0, 10)) + '</td>' +
+    '<td><button class="rowbtn danger" data-del="' + esc(s.month) + '">삭제</button></td></tr>'
+  ).join('') || '<tr><td colspan="8" class="empty">저장된 스냅샷이 없습니다. 월 결산 시 <b>이달 스냅샷 저장</b>을 눌러 기록을 고정하세요.</td></tr>';
+
+  const pts = state.history.filter(s => s.turnover != null).sort((a,b)=>a.month.localeCompare(b.month));
+  const has = pts.length >= 2;
+  $('#chSnap').parentElement.hidden = !has;
+  $('#noSnap').hidden = has;
+  if (has && chart.ok) chart.mk('chSnap', {
+    type:'line',
+    data:{ labels:pts.map(p=>p.month.slice(2)), datasets:[{ data:pts.map(p=>p.turnover),
+      borderColor:C.BRAND, backgroundColor:KFS.rgba(C.BRAND,.08), fill:true, tension:.3, borderWidth:2.5, pointRadius:3, pointBackgroundColor:C.BRAND }] },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      plugins:{ legend:{ display:false }, tooltip:{ callbacks:{ label(ctx){ return ' 이직률 ' + ctx.parsed.y + '%'; } } } },
+      scales:{ y:{ beginAtZero:true, ticks:{ callback:v=>v+'%', font:{ size:10.5 } } }, x:{ grid:{ display:false }, ticks:{ font:{ size:10.5 } } } }
+    }
+  });
+}
+function renderComment(){
+  $('#comment').value = state.comment || '';
+  $('#cmtMirror').textContent = state.comment || '(작성 내용 없음)';
+  $('#cmtSaved').textContent = state.savedAt ? '저장: ' + new Date(state.savedAt).toLocaleString('ko-KR') : '';
+}
+function renderAll(){
+  const head = calcHead();
+  M = { head, pay: calcPayroll(), rec: calcRecruit(), perf: calcPerf(),
+        ret: calcRetention(), train: calcTraining(head), comp: calcCompliance() };
+  renderKpis(); renderMods(); renderSnaps(); renderComment();
+}
+
+/* ───── 셸 + 이벤트 ───── */
+KFS.shell({
+  active:'scorecard', title:'경영진 HR 종합', sub:'전 대시보드 자동 집계 · 월간 스냅샷 · Executive Scorecard',
+  actions:[{ id:'btnTopPrint', label:'보고용 인쇄', primary:true }]
+});
+$('#btnTopPrint').addEventListener('click', () => window.print());
+$('#btnPrint').addEventListener('click', () => window.print());
+$('#btnSnap').addEventListener('click', () => {
+  const { head, pay, train, comp } = M;
+  const month = d.mkey(d.today());
+  const snap = { month,
+    head: head.ok ? head.active : null,
+    turnover: head.ok ? head.turnover : null,
+    payroll: pay.ok ? pay.cur : null,
+    train: train.ok ? train.rate : null,
+    issues: comp.ok ? comp.open : null,
+    savedAt: new Date().toISOString() };
+  const i = state.history.findIndex(s => s.month === month);
+  if (i > -1) { if (!confirm(month + ' 스냅샷이 이미 있습니다. 덮어쓸까요?')) return; state.history[i] = snap; }
+  else state.history.push(snap);
+  DB.save(state); renderSnaps();
+});
+$('#snapBody').addEventListener('click', ev => {
+  const btn = ev.target.closest('button[data-del]'); if (!btn) return;
+  if (!confirm(btn.dataset.del + ' 스냅샷을 삭제할까요?')) return;
+  state.history = state.history.filter(s => s.month !== btn.dataset.del);
+  DB.save(state); renderSnaps();
+});
+$('#comment').addEventListener('input', () => { $('#cmtMirror').textContent = $('#comment').value || '(작성 내용 없음)'; });
+$('#btnCmtSave').addEventListener('click', () => {
+  state.comment = $('#comment').value;
+  state.savedAt = new Date().toISOString();
+  DB.save(state); renderComment();
+});
+
+renderAll();
+</script>
+</body>
+</html>

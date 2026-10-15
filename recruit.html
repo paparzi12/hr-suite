@@ -1,0 +1,497 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>④ 채용 파이프라인</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="assets/base.css">
+<style>
+.stagechips{display:flex;gap:4px;flex-wrap:wrap}
+.sc{font-size:.71rem;font-weight:700;padding:1px 7px;border-radius:99px;background:var(--accent-soft);color:var(--accent-deep);white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="mainwrap">
+    <header class="top" id="topbar"></header>
+    <main>
+      <div class="banner" id="sampleBanner" hidden>
+        <span>지금 보이는 데이터는 <b>샘플</b>입니다(가상 인물). 포지션·후보자를 등록하거나 후보자 엑셀을 업로드하세요.</span>
+        <button class="btn" id="btnClearSample">샘플 비우기</button>
+      </div>
+
+      <div class="kpis" id="kpiGrid"></div>
+
+      <div class="grid">
+        <div class="panel w6">
+          <div class="panel-h"><h2>채용 퍼널</h2><span class="sub">올해 누적 · 단계 도달 인원</span></div>
+          <div class="chartbox tall"><canvas id="chFunnel"></canvas></div>
+        </div>
+        <div class="panel w6">
+          <div class="panel-h"><h2>진행 포지션 파이프라인</h2><span class="sub">현재 단계별 재적 후보</span></div>
+          <div class="chartbox tall"><canvas id="chPipe"></canvas></div>
+          <div class="nodata" id="noPipe" hidden>진행 중 포지션의 활성 후보가 없습니다.</div>
+        </div>
+        <div class="panel w6">
+          <div class="panel-h"><h2>채용경로별 지원자</h2><span class="sub">올해 누적</span></div>
+          <div class="chartbox"><canvas id="chSource"></canvas></div>
+        </div>
+        <div class="panel w6">
+          <div class="panel-h"><h2>월별 지원자 추이</h2><span class="sub">최근 12개월</span></div>
+          <div class="chartbox"><canvas id="chMonthly"></canvas></div>
+        </div>
+      </div>
+
+      <!-- 포지션 -->
+      <div class="panel full" style="margin-top:18px">
+        <div class="panel-h"><h2>채용 포지션</h2>
+          <span class="end"><button class="btn sm" id="btnAddPos">포지션 추가</button></span>
+        </div>
+        <div style="overflow:auto">
+          <table class="tbl">
+            <thead><tr><th>포지션</th><th>소속</th><th>오픈일</th><th class="r">경과</th><th class="r">지원</th><th>파이프라인</th><th>상태</th><th>관리</th></tr></thead>
+            <tbody id="posBody"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- 후보자 -->
+      <div class="toolrow" style="margin-top:18px">
+        <input type="search" id="q" placeholder="후보자 검색">
+        <select id="fPos"></select>
+        <select id="fStage"></select>
+        <span class="count" id="candCount"></span>
+      </div>
+      <div class="tablewrap">
+        <table class="tbl">
+          <thead><tr><th>후보자</th><th>포지션</th><th>경로</th><th>지원일</th><th>현재 단계</th><th>단계 변경일</th><th class="r">소요일</th><th>관리</th></tr></thead>
+          <tbody id="candBody"></tbody>
+        </table>
+        <div class="empty" id="emptyMsg" hidden>후보자가 없습니다. <b>후보자 추가</b> 또는 엑셀 업로드로 시작하세요.</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 포지션 모달 -->
+<div class="overlay" id="posOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="posTitle">포지션 추가</h2>
+    <form id="posForm">
+      <div class="formgrid">
+        <div class="field span2"><label>포지션명 <em>*</em></label><input id="pTitle" required placeholder="예) 스택개발팀 선임연구원"></div>
+        <div class="field"><label>소속</label><input id="pTeam" list="teamList"></div>
+        <div class="field"><label>채용 인원</label><input type="number" id="pPlan" min="1" value="1"></div>
+        <div class="field"><label>오픈일</label><input type="date" id="pOpen"></div>
+        <div class="field"><label>상태</label><select id="pStatus"><option>진행</option><option>완료</option><option>보류</option></select></div>
+      </div>
+      <div class="modalfoot">
+        <button type="button" class="btn" id="posClose">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- 후보자 모달 -->
+<div class="overlay" id="candOverlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="candTitle">후보자 추가</h2>
+    <form id="candForm">
+      <div class="formgrid">
+        <div class="field"><label>성명 <em>*</em></label><input id="cName" required></div>
+        <div class="field"><label>포지션 <em>*</em></label><select id="cPos" required></select></div>
+        <div class="field"><label>채용경로</label><select id="cSource"><option>채용 플랫폼</option><option>원티드</option><option>사내 추천</option><option>직접 지원</option><option>서치펌</option><option>기타</option></select></div>
+        <div class="field"><label>지원일</label><input type="date" id="cApplied"></div>
+        <div class="field"><label>현재 단계</label><select id="cStage"></select></div>
+        <div class="field"><label>단계 변경일</label><input type="date" id="cStageDate"></div>
+        <div class="field span2"><label>비고</label><input id="cNote"></div>
+      </div>
+      <div class="modalfoot">
+        <button type="button" class="btn" id="candClose">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+<datalist id="teamList"></datalist>
+
+<script src="assets/core.js"></script>
+<script>
+/* ============================================================
+ * recruit — ④ 채용 파이프라인 대시보드
+ * 저장: localStorage kfs_recruit_v1
+ * 모델: positions[{id,title,team,plan,openDate,status}]
+ *       candidates[{id,posId,name,source,appliedDate,stage,stageDate,reached,note}]
+ *       stage ∈ STAGES ∪ {불합격} · reached = 도달한 최고 단계 index (퍼널 집계용)
+ * ========================================================== */
+const { $, esc, uid, fmt, d, C, ui, chart, xl } = KFS;
+const STAGES = ['지원','서류합격','면접','처우협의','합격','입사'];
+const TEAMS = ['영업1팀','영업2팀','경영지원팀','구매팀','생산팀','스택개발팀','시스템개발팀','제어개발팀'];
+const DB = KFS.store('kfs_recruit_v1');
+let state = DB.load({ positions: [], candidates: [], sample: false });
+let editPos = null, editCand = null;
+
+/* ───── 샘플 ───── */
+function seed(){
+  const P = [
+    ['p1','스택개발팀 선임연구원','스택개발팀',1,'2026-08-17','진행'],
+    ['p2','생산팀 매니저','생산팀',1,'2026-09-07','진행'],
+    ['p3','경영지원팀 선임','경영지원팀',1,'2026-04-01','완료'],
+    ['p4','시스템개발팀 연구원','시스템개발팀',1,'2026-05-20','완료'],
+    ['p5','영업1팀 매니저','영업1팀',1,'2026-07-01','보류']
+  ];
+  state.positions = P.map(r => ({ id:r[0], title:r[1], team:r[2], plan:r[3], openDate:r[4], status:r[5] }));
+  /* [포지션, 성명, 경로, 지원일, 단계, 단계일, reached] */
+  const CD = [
+    ['p1','강윤호','채용 플랫폼','2026-08-20','서류합격','2026-09-30',1],
+    ['p1','민서진','원티드','2026-08-25','면접','2026-10-08',2],
+    ['p1','표재민','채용 플랫폼','2026-09-02','불합격','2026-09-26',0],
+    ['p1','채하은','사내 추천','2026-09-12','지원','2026-09-12',0],
+    ['p1','탁지원','원티드','2026-09-18','불합격','2026-10-06',1],
+    ['p1','방유라','채용 플랫폼','2026-10-01','지원','2026-10-01',0],
+    ['p1','사공민','직접 지원','2026-10-06','지원','2026-10-06',0],
+    ['p2','길도윤','채용 플랫폼','2026-09-10','면접','2026-10-10',2],
+    ['p2','석주원','채용 플랫폼','2026-09-14','서류합격','2026-10-02',1],
+    ['p2','위소연','직접 지원','2026-09-20','불합격','2026-09-29',0],
+    ['p2','엄태린','사내 추천','2026-09-28','처우협의','2026-10-13',3],
+    ['p2','추민재','채용 플랫폼','2026-10-02','지원','2026-10-02',0],
+    ['p3','백승아','사내 추천','2026-05-04','입사','2026-07-01',5],
+    ['p3','선우경','채용 플랫폼','2026-04-10','불합격','2026-05-02',2],
+    ['p3','감초롱','채용 플랫폼','2026-04-15','불합격','2026-04-28',1],
+    ['p3','도하람','원티드','2026-04-22','불합격','2026-05-18',3],
+    ['p4','심재욱','원티드','2026-06-10','입사','2026-08-03',5],
+    ['p4','노아진','채용 플랫폼','2026-05-28','불합격','2026-06-20',2],
+    ['p4','마지후','채용 플랫폼','2026-06-02','불합격','2026-06-12',0],
+    ['p4','간다연','서치펌','2026-06-15','불합격','2026-07-10',4],
+    ['p5','연승우','채용 플랫폼','2026-07-05','서류합격','2026-07-21',1],
+    ['p5','범수아','직접 지원','2026-07-12','지원','2026-07-12',0]
+  ];
+  state.candidates = CD.map(r => ({ id: uid(), posId:r[0], name:r[1], source:r[2], appliedDate:r[3], stage:r[4], stageDate:r[5], reached:r[6], note:'' }));
+  state.sample = true;
+}
+
+/* ───── 집계 ───── */
+const posOf = (id) => state.positions.find(p => p.id === id);
+const activeCand = (c) => STAGES.includes(c.stage) && c.stage !== '입사';
+function metrics(){
+  const year = d.today().getFullYear();
+  const ofYear = state.candidates.filter(c => (c.appliedDate || '').startsWith(year + '-'));
+  const reach = (i) => ofYear.filter(c => c.reached >= i).length;
+  const funnel = STAGES.map((s, i) => ({ stage: s, n: reach(i) }));
+  const hired = ofYear.filter(c => c.stage === '입사');
+  const tth = hired.map(c => Math.round((d.toD(c.stageDate) - d.toD(c.appliedDate)) / 86400000)).filter(x => x >= 0);
+  const avgTth = tth.length ? Math.round(tth.reduce((a, b) => a + b, 0) / tth.length) : null;
+  const offers = ofYear.filter(c => c.reached >= 4 || (c.stage === '불합격' && c.reached === 3)).length;
+  const accepted = ofYear.filter(c => c.reached >= 4).length;
+  return {
+    year, ofYear, funnel,
+    openPos: state.positions.filter(p => p.status === '진행').length,
+    docRate: reach(0) ? Math.round(reach(1) / reach(0) * 100) : 0,
+    itvRate: reach(1) ? Math.round(reach(2) / reach(1) * 100) : 0,
+    offerRate: offers ? Math.round(accepted / offers * 100) : null,
+    avgTth, hiredN: hired.length
+  };
+}
+
+/* ───── 렌더 ───── */
+function renderKpis(m){
+  ui.kpis('#kpiGrid', [
+    { l:'진행 중 포지션', v:m.openPos, u:'건', cap:'보류 ' + state.positions.filter(p=>p.status==='보류').length + '건 별도' },
+    { l:'올해 지원자', v:m.ofYear.length, u:'명', cap:m.year + '년 누적' },
+    { l:'서류 합격률', v:m.docRate, u:'%', cap:'지원 → 서류합격' },
+    { l:'면접 전환율', v:m.itvRate, u:'%', cap:'서류합격 → 면접' },
+    { l:'오퍼 수락률', v:m.offerRate === null ? '—' : m.offerRate, u:m.offerRate === null ? '' : '%', cap:'처우협의 이후 기준' },
+    { l:'평균 채용 소요', v:m.avgTth === null ? '—' : m.avgTth, u:m.avgTth === null ? '' : '일', cap:'지원 → 입사 (올해 입사 ' + m.hiredN + '명)' }
+  ]);
+}
+function renderCharts(m){
+  if (!chart.ok) return;
+  /* 퍼널 — 순서형 6단계 램프 */
+  chart.mk('chFunnel', {
+    type:'bar',
+    data:{ labels: m.funnel.map(f=>f.stage), datasets:[{ data: m.funnel.map(f=>f.n),
+      backgroundColor: C.FUNNEL6, borderRadius:{ topLeft:3, topRight:3 }, barPercentage:.62 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:18 } },
+      plugins:{
+        legend:{ display:false }, datalabels: chart.dl.top,
+        tooltip:{ callbacks:{
+          label(ctx){
+            const i = ctx.dataIndex, prev = i ? m.funnel[i-1].n : null;
+            const conv = prev ? ' · 전환율 ' + Math.round(ctx.parsed.y / prev * 100) + '%' : '';
+            return ' ' + fmt(ctx.parsed.y) + '명' + conv;
+          }
+        } }
+      },
+      scales:{ y:{ display:false, beginAtZero:true, suggestedMax: Math.max(1, m.funnel[0].n) * 1.15 },
+               x:{ grid:{ display:false }, ticks:{ font:{ size:11 } } } }
+    }
+  });
+  /* 진행 포지션 스택 — 현재 단계별 재적 */
+  const openPos = state.positions.filter(p => p.status === '진행');
+  const hasPipe = openPos.some(p => state.candidates.some(c => c.posId === p.id && activeCand(c)));
+  $('#chPipe').parentElement.hidden = !hasPipe;
+  $('#noPipe').hidden = hasPipe;
+  if (hasPipe) {
+    chart.mk('chPipe', {
+      type:'bar',
+      data:{
+        labels: openPos.map(p => p.title),
+        datasets: STAGES.slice(0, 5).map((s, i) => ({
+          label: s, stack:'s',
+          data: openPos.map(p => state.candidates.filter(c => c.posId === p.id && c.stage === s).length),
+          backgroundColor: C.FUNNEL6[i], borderWidth:{ right: 2 }, borderColor:'#fff', barPercentage:.55
+        }))
+      },
+      options:{
+        indexAxis:'y', responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{ position:'bottom', labels:{ boxWidth:11, boxHeight:11, font:{ size:11 } } },
+          tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.dataset.label + ' ' + ctx.parsed.x + '명'; } } }
+        },
+        scales:{ x:{ stacked:true, ticks:{ precision:0 } }, y:{ stacked:true, grid:{ display:false }, ticks:{ font:{ size:11 } } } }
+      }
+    });
+  }
+  /* 채용경로 도넛 */
+  const srcCnt = {};
+  m.ofYear.forEach(c => { const s = c.source || '기타'; srcCnt[s] = (srcCnt[s] || 0) + 1; });
+  const sKeys = Object.keys(srcCnt).sort((a, b) => srcCnt[b] - srcCnt[a]);
+  chart.mk('chSource', {
+    type:'doughnut',
+    data:{ labels:sKeys, datasets:[{ data:sKeys.map(k=>srcCnt[k]),
+      backgroundColor:sKeys.map((k,i)=>C.CAT[i % C.CAT.length]), borderWidth:2, borderColor:'#fff' }] },
+    options: chart.doughnutOpts(m.ofYear.length, '지원')
+  });
+  /* 월별 지원자 */
+  const months = d.lastMonths(12);
+  const mv = months.map(mo => state.candidates.filter(c => (c.appliedDate || '').startsWith(mo.key)).length);
+  chart.mk('chMonthly', {
+    type:'bar',
+    data:{ labels: months.map(x=>x.label), datasets:[{ data:mv, backgroundColor:C.BRAND,
+      borderRadius:{ topLeft:3, topRight:3 }, barPercentage:.55 }] },
+    options:{
+      responsive:true, maintainAspectRatio:false, layout:{ padding:{ top:16 } },
+      plugins:{ legend:{ display:false }, datalabels: chart.dl.top,
+        tooltip:{ callbacks:{ label(ctx){ return ' ' + ctx.parsed.y + '명'; } } } },
+      scales:{ y:{ display:false, beginAtZero:true, suggestedMax: Math.max(1, ...mv) + 2 },
+               x:{ grid:{ display:false }, ticks:{ font:{ size:10.5 } } } }
+    }
+  });
+}
+function renderPositions(){
+  $('#posBody').innerHTML = state.positions.slice()
+    .sort((a,b)=>(a.status==='진행'?0:1)-(b.status==='진행'?0:1) || (b.openDate||'').localeCompare(a.openDate||''))
+    .map(p => {
+      const cs = state.candidates.filter(c => c.posId === p.id);
+      const days = p.openDate ? Math.max(0, Math.round((d.today() - d.toD(p.openDate)) / 86400000)) : '—';
+      const chips = STAGES.map(s => {
+        const n = cs.filter(c => c.stage === s).length;
+        return n ? '<span class="sc">' + s + ' ' + n + '</span>' : '';
+      }).join('') || '<span class="sc" style="background:#f1f4f5;color:#8a99a3">후보 없음</span>';
+      const st = p.status === '진행' ? '<span class="chip b">진행</span>' : p.status === '완료' ? '<span class="chip g">완료</span>' : '<span class="chip n">보류</span>';
+      return '<tr' + (p.status !== '진행' ? ' class="dim"' : '') + '><td><b>' + esc(p.title) + '</b></td><td>' + esc(p.team || '') + '</td>' +
+        '<td>' + esc(p.openDate || '') + '</td><td class="r">' + (days === '—' ? days : days + '일') + '</td><td class="r">' + cs.length + '</td>' +
+        '<td><div class="stagechips">' + chips + '</div></td><td>' + st + '</td>' +
+        '<td><button class="rowbtn" data-act="edit" data-id="' + p.id + '">수정</button> <button class="rowbtn danger" data-act="del" data-id="' + p.id + '">삭제</button></td></tr>';
+    }).join('') || '<tr><td colspan="8" class="empty">포지션이 없습니다.</td></tr>';
+}
+function renderCands(){
+  const q = $('#q').value.trim().toLowerCase();
+  const fp = $('#fPos').value, fs = $('#fStage').value;
+  let list = state.candidates.slice().sort((a,b)=>(b.stageDate||'').localeCompare(a.stageDate||''));
+  if (q) list = list.filter(c => (c.name||'').toLowerCase().includes(q));
+  if (fp) list = list.filter(c => c.posId === fp);
+  if (fs) list = list.filter(c => c.stage === fs);
+  $('#candCount').textContent = '표시 ' + list.length + '명 / 전체 ' + state.candidates.length + '명';
+  $('#emptyMsg').hidden = state.candidates.length > 0;
+  $('#candBody').innerHTML = list.map(c => {
+    const p = posOf(c.posId);
+    const days = c.appliedDate ? Math.max(0, Math.round(((d.toD(c.stageDate) || d.today()) - d.toD(c.appliedDate)) / 86400000)) : '—';
+    const opts = STAGES.concat(['불합격']).map(s => '<option' + (c.stage === s ? ' selected' : '') + '>' + s + '</option>').join('');
+    return '<tr' + (c.stage === '불합격' ? ' class="dim"' : '') + '><td><b>' + esc(c.name) + '</b></td><td>' + esc(p ? p.title : '—') + '</td>' +
+      '<td>' + esc(c.source || '') + '</td><td>' + esc(c.appliedDate || '') + '</td>' +
+      '<td><select class="inline" data-stage="' + c.id + '">' + opts + '</select></td>' +
+      '<td>' + esc(c.stageDate || '') + '</td><td class="r">' + (days === '—' ? days : days + '일') + '</td>' +
+      '<td><button class="rowbtn" data-act="edit" data-id="' + c.id + '">수정</button> <button class="rowbtn danger" data-act="del" data-id="' + c.id + '">삭제</button></td></tr>';
+  }).join('');
+}
+function renderFilters(){
+  const fp = $('#fPos').value;
+  $('#fPos').innerHTML = '<option value="">포지션 전체</option>' +
+    state.positions.map(p => '<option value="' + p.id + '">' + esc(p.title) + '</option>').join('');
+  if (state.positions.some(p => p.id === fp)) $('#fPos').value = fp;
+  const fs = $('#fStage').value;
+  $('#fStage').innerHTML = '<option value="">단계 전체</option>' + STAGES.concat(['불합격']).map(s => '<option>' + s + '</option>').join('');
+  if (fs) $('#fStage').value = fs;
+  $('#cPos').innerHTML = state.positions.map(p => '<option value="' + p.id + '">' + esc(p.title) + '</option>').join('');
+  $('#cStage').innerHTML = STAGES.concat(['불합격']).map(s => '<option>' + s + '</option>').join('');
+}
+function renderAll(){
+  const m = metrics();
+  renderKpis(m); renderCharts(m); renderFilters(); renderPositions(); renderCands();
+  $('#sampleBanner').hidden = !state.sample;
+}
+
+/* ───── 셸 ───── */
+KFS.shell({
+  active:'recruit', title:'채용 파이프라인', sub:'포지션 · 후보 단계 관리 · 전환율 분석',
+  actions:[{ id:'btnAddCand', label:'후보자 추가', primary:true }],
+  sideActions:[
+    { id:'btnUpload', label:'후보자 엑셀 업로드' },
+    { id:'btnTemplate', label:'업로드 양식 받기' },
+    { id:'btnExport', label:'후보자 다운로드' }
+  ]
+});
+const posModal = ui.modal('#posOverlay');
+const candModal = ui.modal('#candOverlay');
+$('#teamList').innerHTML = TEAMS.map(t => '<option value="' + t + '">').join('');
+
+/* ───── 포지션 CRUD ───── */
+function openPos(p){
+  editPos = p ? p.id : null;
+  $('#posTitle').textContent = p ? '포지션 수정' : '포지션 추가';
+  $('#pTitle').value = p ? p.title : '';
+  $('#pTeam').value = p ? p.team : '';
+  $('#pPlan').value = p ? p.plan : 1;
+  $('#pOpen').value = p ? (p.openDate || '') : d.iso(d.today());
+  $('#pStatus').value = p ? p.status : '진행';
+  posModal.open(); $('#pTitle').focus();
+}
+$('#btnAddPos').addEventListener('click', () => openPos(null));
+$('#posClose').addEventListener('click', posModal.close);
+$('#posForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const rec = { title: $('#pTitle').value.trim(), team: $('#pTeam').value.trim(),
+    plan: +$('#pPlan').value || 1, openDate: $('#pOpen').value, status: $('#pStatus').value };
+  if (!rec.title) return;
+  if (editPos) Object.assign(posOf(editPos), rec);
+  else { state.positions.push(Object.assign({ id: uid() }, rec)); state.sample = false; }
+  DB.save(state); posModal.close(); renderAll();
+});
+$('#posBody').addEventListener('click', ev => {
+  const btn = ev.target.closest('button[data-act]'); if (!btn) return;
+  const p = posOf(btn.dataset.id); if (!p) return;
+  if (btn.dataset.act === 'edit') openPos(p);
+  if (btn.dataset.act === 'del') {
+    const n = state.candidates.filter(c => c.posId === p.id).length;
+    if (!confirm('"' + p.title + '" 포지션을 삭제할까요?' + (n ? '\n연결된 후보자 ' + n + '명도 함께 삭제됩니다.' : ''))) return;
+    state.positions = state.positions.filter(x => x.id !== p.id);
+    state.candidates = state.candidates.filter(c => c.posId !== p.id);
+    DB.save(state); renderAll();
+  }
+});
+
+/* ───── 후보자 CRUD + 인라인 단계 변경 ───── */
+function openCand(c){
+  if (!state.positions.length) { alert('먼저 포지션을 추가하세요.'); return; }
+  editCand = c ? c.id : null;
+  renderFilters();
+  $('#candTitle').textContent = c ? '후보자 수정' : '후보자 추가';
+  $('#cName').value = c ? c.name : '';
+  $('#cPos').value = c ? c.posId : state.positions[0].id;
+  $('#cSource').value = c ? (c.source || '기타') : '채용 플랫폼';
+  $('#cApplied').value = c ? (c.appliedDate || '') : d.iso(d.today());
+  $('#cStage').value = c ? c.stage : '지원';
+  $('#cStageDate').value = c ? (c.stageDate || '') : d.iso(d.today());
+  $('#cNote').value = c ? (c.note || '') : '';
+  candModal.open(); $('#cName').focus();
+}
+$('#btnAddCand').addEventListener('click', () => openCand(null));
+$('#candClose').addEventListener('click', candModal.close);
+$('#candForm').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const stage = $('#cStage').value;
+  const rec = { name: $('#cName').value.trim(), posId: $('#cPos').value, source: $('#cSource').value,
+    appliedDate: $('#cApplied').value, stage, stageDate: $('#cStageDate').value, note: $('#cNote').value.trim() };
+  if (!rec.name) return;
+  const reachedOf = (prev) => Math.max(prev, STAGES.indexOf(stage) === -1 ? prev : STAGES.indexOf(stage));
+  if (editCand) {
+    const c = state.candidates.find(x => x.id === editCand);
+    Object.assign(c, rec, { reached: reachedOf(c.reached || 0) });
+  } else {
+    state.candidates.push(Object.assign({ id: uid(), reached: Math.max(0, STAGES.indexOf(stage)) }, rec));
+    state.sample = false;
+  }
+  DB.save(state); candModal.close(); renderAll();
+});
+$('#candBody').addEventListener('click', ev => {
+  const btn = ev.target.closest('button[data-act]'); if (!btn) return;
+  const c = state.candidates.find(x => x.id === btn.dataset.id); if (!c) return;
+  if (btn.dataset.act === 'edit') openCand(c);
+  if (btn.dataset.act === 'del' && confirm(c.name + ' 후보자를 삭제할까요?')) {
+    state.candidates = state.candidates.filter(x => x.id !== c.id);
+    DB.save(state); renderAll();
+  }
+});
+$('#candBody').addEventListener('change', ev => {
+  const sel = ev.target.closest('select[data-stage]'); if (!sel) return;
+  const c = state.candidates.find(x => x.id === sel.dataset.stage); if (!c) return;
+  c.stage = sel.value;
+  c.stageDate = d.iso(d.today());
+  if (STAGES.indexOf(sel.value) > -1) c.reached = Math.max(c.reached || 0, STAGES.indexOf(sel.value));
+  DB.save(state); renderAll();
+});
+['q','fPos','fStage'].forEach(id => $('#' + id).addEventListener('input', renderCands));
+$('#btnClearSample').addEventListener('click', () => {
+  if (!confirm('샘플 데이터를 모두 비울까요?')) return;
+  state.positions = []; state.candidates = []; state.sample = false;
+  DB.save(state); renderAll();
+});
+
+/* ───── 엑셀 IO ───── */
+let fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = '.xlsx,.xls,.csv';
+$('#btnUpload').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  try {
+    const rows = await xl.read(f);
+    const list = []; let skipped = 0;
+    rows.forEach(r => {
+      const name = String(xl.pick(r, ['성명','이름','name'])).trim();
+      const posTitle = String(xl.pick(r, ['포지션','position'])).trim();
+      if (!name) { skipped++; return; }
+      let pos = state.positions.find(p => p.title === posTitle);
+      if (!pos && posTitle) { pos = { id: uid(), title: posTitle, team: '', plan: 1, openDate: '', status: '진행' }; state.positions.push(pos); }
+      if (!pos) { skipped++; return; }
+      const stage = String(xl.pick(r, ['단계','stage'])).trim() || '지원';
+      list.push({ id: uid(), posId: pos.id, name,
+        source: String(xl.pick(r, ['경로','채용경로','source'])).trim() || '기타',
+        appliedDate: d.norm(xl.pick(r, ['지원일','appliedDate'])),
+        stage: STAGES.concat(['불합격']).includes(stage) ? stage : '지원',
+        stageDate: d.norm(xl.pick(r, ['단계일','단계변경일','stageDate'])) || d.norm(xl.pick(r, ['지원일'])),
+        reached: Math.max(0, STAGES.indexOf(stage)),
+        note: String(xl.pick(r, ['비고','note'])).trim() });
+    });
+    if (!list.length) { alert('불러올 후보자가 없습니다. 성명·포지션 열을 확인하세요.'); ev.target.value = ''; return; }
+    state.candidates = state.candidates.concat(list);
+    state.sample = false; DB.save(state); renderAll();
+    alert('업로드 완료: ' + list.length + '명 추가' + (skipped ? ' / ' + skipped + '행 제외' : ''));
+  } catch (e) { alert('파일을 읽지 못했습니다. .xlsx 형식인지 확인하세요.'); }
+  ev.target.value = '';
+});
+$('#btnTemplate').addEventListener('click', () => {
+  xl.down([
+    { 성명:'홍길동', 포지션:'스택개발팀 선임연구원', 경로:'채용 플랫폼', 지원일:'2026-10-01', 단계:'서류합격', 단계일:'2026-10-10', 비고:'' }
+  ], { headers:['성명','포지션','경로','지원일','단계','단계일','비고'], widths:[9,22,10,11,9,11,16], sheet:'후보자', file:'후보자_업로드양식.xlsx' });
+});
+$('#btnExport').addEventListener('click', () => {
+  if (!state.candidates.length) { alert('내보낼 후보자가 없습니다.'); return; }
+  xl.down(state.candidates.map(c => {
+    const p = posOf(c.posId);
+    return { 성명:c.name, 포지션:p ? p.title : '', 경로:c.source, 지원일:c.appliedDate, 단계:c.stage, 단계일:c.stageDate, 비고:c.note };
+  }), { headers:['성명','포지션','경로','지원일','단계','단계일','비고'], widths:[9,22,10,11,9,11,16], sheet:'후보자', file:'채용후보자_' + d.iso(d.today()).replace(/-/g,'') + '.xlsx' });
+});
+
+/* ───── 초기화 ───── */
+if (!state.positions.length && !state.candidates.length && !localStorage.getItem('kfs_recruit_v1')) { seed(); DB.save(state); }
+renderAll();
+</script>
+</body>
+</html>

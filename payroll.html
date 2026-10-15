@@ -1,0 +1,400 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>③ 인건비·보상</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.4/chart.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/chartjs-plugin-datalabels/2.2.0/chartjs-plugin-datalabels.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="assets/base.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="mainwrap">
+    <header class="top" id="topbar"></header>
+    <main>
+      <div class="banner" id="sampleBanner" hidden>
+        <span>지금 보이는 숫자는 <b>샘플 데이터</b>입니다. 급여대장 집계를 엑셀로 업로드하거나 직접 등록하세요. <b>인건비는 민감정보</b>이므로 열람 권한에 유의하세요.</span>
+        <button class="btn" id="btnClearSample">샘플 비우기</button>
+      </div>
+
+      <div class="kpis" id="kpiGrid"></div>
+
+      <div class="grid">
+        <div class="panel w8">
+          <div class="panel-h"><h2>월별 인건비 추이·구성</h2><span class="sub">최근 12개월 · 단위 백만원</span></div>
+          <div class="chartbox tall"><canvas id="chStack"></canvas></div>
+        </div>
+        <div class="panel">
+          <div class="panel-h"><h2>연간 예산 집행</h2><span class="sub" id="budgetYear"></span></div>
+          <div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;font-size:.9rem">
+            연간 예산 <input type="number" id="budgetInput" min="0" step="100"
+              style="width:110px;padding:6px 8px;border:1px solid var(--line);border-radius:6px;font:inherit;text-align:right"> 만원
+            <button class="btn sm" id="btnBudgetSave">저장</button>
+          </div>
+          <div class="progress" style="margin-top:14px"><i id="budgetBar" style="width:0%"></i></div>
+          <div style="display:flex;justify-content:space-between;font-size:.82rem;color:var(--ink2);margin-top:7px">
+            <span id="budgetSpent"></span><span id="budgetRate"></span>
+          </div>
+          <p style="font-size:.8rem;color:var(--ink3);margin-top:10px" id="budgetHint"></p>
+          <div class="minilist"><h3>당월 부문별 상위</h3><div id="topSegs"></div></div>
+        </div>
+        <div class="panel w6">
+          <div class="panel-h"><h2>부문별 인건비</h2><span class="sub" id="segMonthLabel"></span></div>
+          <div class="chartbox"><canvas id="chSeg"></canvas></div>
+        </div>
+        <div class="panel w6">
+          <div class="panel-h"><h2>당월 구성비</h2><span class="sub">지급총액 + 법정부담 · 단위 백만원</span></div>
+          <div class="chartbox"><canvas id="chComp"></canvas></div>
+        </div>
+      </div>
+
+      <div class="toolrow" style="margin-top:18px">
+        <select id="fMonth"></select>
+        <select id="fSeg"></select>
+        <span class="count" id="rowCount"></span>
+      </div>
+      <div class="tablewrap">
+        <table class="tbl">
+          <thead><tr>
+            <th>월</th><th>부문</th><th class="r">인원</th>
+            <th class="r">기본급</th><th class="r">제수당</th><th class="r">연장수당</th><th class="r">상여·성과</th>
+            <th class="r">지급총액</th><th class="r">4대보험</th><th class="r">퇴직충당</th><th class="r">총인건비</th><th>관리</th>
+          </tr></thead>
+          <tbody id="tbody"></tbody>
+          <tfoot><tr id="tfoot"></tr></tfoot>
+        </table>
+        <div class="empty" id="emptyMsg" hidden>데이터가 없습니다. <b>급여 엑셀 업로드</b> 또는 <b>월별 등록</b>으로 시작하세요. (단위: 만원)</div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<!-- 등록/수정 모달 -->
+<div class="overlay" id="overlay" hidden>
+  <div class="modal" role="dialog" aria-modal="true">
+    <h2 id="modalTitle">인건비 등록</h2>
+    <form id="form">
+      <div class="formgrid">
+        <div class="field"><label>귀속월 <em>*</em></label><input type="month" id="iMonth" required></div>
+        <div class="field"><label>부문 <em>*</em></label><input id="iSeg" list="segList" required></div>
+        <div class="field"><label>인원</label><input type="number" id="iHc" min="0"></div>
+        <div class="field"><label>기본급 (만원)</label><input type="number" id="iBase" min="0"></div>
+        <div class="field"><label>제수당 (만원)</label><input type="number" id="iAllow" min="0"></div>
+        <div class="field"><label>연장수당 (만원)</label><input type="number" id="iOt" min="0"></div>
+        <div class="field"><label>상여·성과급 (만원)</label><input type="number" id="iBonus" min="0"></div>
+        <div class="field"><label>4대보험 사측 (만원)</label><input type="number" id="iSocial" min="0" placeholder="비우면 10.5% 자동"></div>
+        <div class="field"><label>퇴직급여충당 (만원)</label><input type="number" id="iSev" min="0" placeholder="비우면 1/12 자동"></div>
+      </div>
+      <div class="modalfoot">
+        <button type="button" class="btn" id="btnClose">취소</button>
+        <button type="submit" class="btn primary">저장</button>
+      </div>
+    </form>
+  </div>
+</div>
+<datalist id="segList"></datalist>
+
+<script src="assets/core.js"></script>
+<script>
+/* ============================================================
+ * payroll — ③ 인건비·보상 대시보드
+ * 저장: localStorage kfs_payroll_v1 (금액 단위: 만원)
+ * 모델: rows[{id,month'YYYY-MM',seg,hc,base,allow,ot,bonus,social,sev}]
+ *       budget{year,amount}  ·  gross = base+allow+ot+bonus
+ *       total = gross+social+sev
+ * ========================================================== */
+const { $, esc, uid, fmt, eok, d, C, ui, chart, xl } = KFS;
+const SEGS = ['임원·본부장','영업','경영지원','구매·생산','연구소'];
+const DB = KFS.store('kfs_payroll_v1');
+const DEF = { rows: [], budget: { year: new Date().getFullYear(), amount: 260000 }, sample: false };
+let state = DB.load(DEF);
+let editingId = null;
+
+/* ───── 파생 계산 ───── */
+const gross = (r) => (+r.base||0)+(+r.allow||0)+(+r.ot||0)+(+r.bonus||0);
+const total = (r) => gross(r)+(+r.social||0)+(+r.sev||0);
+
+/* ───── 샘플 (결정적 생성 — 2026.01~당월) ───── */
+function seed(){
+  const BASE = { '임원·본부장':4300, '영업':1690, '경영지원':1270, '구매·생산':2680, '연구소':4650 };
+  const HC   = { '임원·본부장':6, '영업':4, '경영지원':3, '구매·생산':7, '연구소':11 };
+  const OT   = { '임원·본부장':0, '영업':60, '경영지원':45, '구매·생산':220, '연구소':310 };
+  const noise = [1,1.05,.96,1.02,1.12,.94,1.03,1.08,1.14,1.04,1.0,1.0];
+  const now = d.today(); state.rows = [];
+  for (let m = 0; m < now.getMonth()+1; m++) {
+    const key = now.getFullYear() + '-' + String(m+1).padStart(2,'0');
+    SEGS.forEach((s, si) => {
+      const base = BASE[s], allow = Math.round(base*0.12);
+      const ot = Math.round(OT[s] * noise[(m+si)%12]);
+      const bonus = (m===1 || m===8) ? Math.round(base*0.5) : 0;   /* 설·추석 상여 */
+      const g = base+allow+ot+bonus;
+      state.rows.push({ id: uid(), month:key, seg:s, hc:HC[s],
+        base, allow, ot, bonus,
+        social: Math.round(g*0.105), sev: Math.round(g/12) });
+    });
+  }
+  state.budget = { year: now.getFullYear(), amount: 260000 };
+  state.sample = true;
+}
+
+/* ───── 집계 ───── */
+function metrics(){
+  const months = d.lastMonths(12);
+  const byMonth = months.map(m => {
+    const rs = state.rows.filter(r => r.month === m.key);
+    return {
+      label: m.label, key: m.key,
+      base: rs.reduce((s,r)=>s+(+r.base||0)+(+r.allow||0),0),
+      ot:   rs.reduce((s,r)=>s+(+r.ot||0),0),
+      bonus:rs.reduce((s,r)=>s+(+r.bonus||0),0),
+      legal:rs.reduce((s,r)=>s+(+r.social||0)+(+r.sev||0),0),
+      hc:   rs.reduce((s,r)=>s+(+r.hc||0),0),
+      total:rs.reduce((s,r)=>s+total(r),0)
+    };
+  });
+  /* 데이터 있는 최신 월 = "당월" */
+  const withData = byMonth.filter(m => m.total > 0);
+  const cur = withData.length ? withData[withData.length-1] : byMonth[byMonth.length-1];
+  const prev = withData.length > 1 ? withData[withData.length-2] : null;
+  const y = state.budget.year;
+  const ytd = state.rows.filter(r => r.month.startsWith(y+'-')).reduce((s,r)=>s+total(r),0);
+  const elapsed = (d.today().getMonth()+1) / 12 * 100;
+  return { byMonth, cur, prev, ytd, elapsed };
+}
+
+/* ───── 렌더 ───── */
+function renderKpis(m){
+  const dPct = m.prev && m.prev.total ? Math.round((m.cur.total - m.prev.total) / m.prev.total * 100) : 0;
+  const budget = +state.budget.amount || 0;
+  const execRate = budget ? m.ytd / budget * 100 : 0;
+  ui.kpis('#kpiGrid', [
+    { l:'당월 인건비 총액', v:eok(m.cur.total), p: m.prev ? ui.pill(dPct,'%',true) : '', cap:(m.cur.key||'') + ' 기준',
+      extra: ui.spark(m.byMonth.map(x=>x.total)) },
+    { l:'연 누계 인건비', v:eok(m.ytd), cap: state.budget.year + '년 1월~' },
+    { l:'예산 집행률', v: budget ? execRate.toFixed(0) : '—', u: budget ? '%' : '', cap:'경과율 ' + m.elapsed.toFixed(0) + '% 대비' },
+    { l:'인당 인건비', v: m.cur.hc ? fmt(Math.round(m.cur.total / m.cur.hc)) : '0', u:'만', cap:'당월 총액 / ' + m.cur.hc + '명' },
+    { l:'연장수당 비중', v: m.cur.total ? (m.cur.ot / (m.cur.base+m.cur.ot+m.cur.bonus) * 100).toFixed(1) : '0', u:'%', cap:'당월 지급총액 대비' },
+    { l:'상여·성과 (연)', v: eok(state.rows.filter(r=>r.month.startsWith(state.budget.year+'-')).reduce((s,r)=>s+(+r.bonus||0),0)), cap:'당해 누계' }
+  ]);
+}
+function renderBudget(m){
+  const budget = +state.budget.amount || 0;
+  const rate = budget ? Math.min(100, m.ytd / budget * 100) : 0;
+  $('#budgetYear').textContent = state.budget.year + '년';
+  $('#budgetInput').value = budget;
+  $('#budgetBar').style.width = rate.toFixed(0) + '%';
+  $('#budgetSpent').textContent = '집행 ' + eok(m.ytd) + ' / ' + eok(budget);
+  $('#budgetRate').textContent = '집행률 ' + (budget ? rate.toFixed(1) + '%' : '—');
+  const gap = rate - m.elapsed;
+  $('#budgetHint').textContent = !budget ? '연간 인건비 예산을 입력하면 집행률이 표시됩니다.'
+    : gap > 5 ? '시간 경과율보다 ' + gap.toFixed(0) + '%p 빠르게 집행 중 — 하반기 예산 점검이 필요합니다.'
+    : gap < -5 ? '시간 경과율보다 ' + Math.abs(gap).toFixed(0) + '%p 낮게 집행 중입니다.'
+    : '시간 경과율과 유사한 정상 범위로 집행 중입니다.';
+  const segs = SEGS.map(s => ({ s, v: state.rows.filter(r=>r.month===m.cur.key && r.seg===s).reduce((a,r)=>a+total(r),0) }))
+    .filter(x=>x.v>0).sort((a,b)=>b.v-a.v).slice(0,4);
+  $('#topSegs').innerHTML = segs.length
+    ? segs.map(x=>'<div class="mrow"><b>'+esc(x.s)+'</b><span class="dt">'+eok(x.v)+'</span></div>').join('')
+    : '<div class="mrow more">당월 데이터가 없습니다.</div>';
+}
+function renderCharts(m){
+  if (!chart.ok) return;
+  /* 스택: 기본급+수당 / 연장 / 상여 / 법정부담 — CAT 1~4 (색각검증 인접순서) */
+  chart.mk('chStack', {
+    type:'bar',
+    data:{ labels:m.byMonth.map(x=>x.label), datasets:[
+      { label:'기본급+제수당', data:m.byMonth.map(x=>Math.round(x.base/100)), backgroundColor:C.CAT[0] },
+      { label:'연장수당',     data:m.byMonth.map(x=>Math.round(x.ot/100)),   backgroundColor:C.CAT[1] },
+      { label:'상여·성과',    data:m.byMonth.map(x=>Math.round(x.bonus/100)),backgroundColor:C.CAT[2] },
+      { label:'법정부담(보험·퇴직)', data:m.byMonth.map(x=>Math.round(x.legal/100)), backgroundColor:C.CAT[3] }
+    ].map(ds => Object.assign(ds, { stack:'s', borderWidth:{top:2}, borderColor:'#fff', barPercentage:.62 })) },
+    options:{
+      responsive:true, maintainAspectRatio:false,
+      interaction:{ mode:'index', intersect:false },
+      plugins:{
+        legend:{ position:'bottom', labels:{ boxWidth:11, boxHeight:11, font:{ size:11.5 } } },
+        tooltip:{ callbacks:{
+          label(ctx){ return ' ' + ctx.dataset.label + ' ' + fmt(ctx.parsed.y) + '백만'; },
+          footer(items){ return '총 ' + fmt(items.reduce((s,i)=>s+i.parsed.y,0)) + '백만'; }
+        } }
+      },
+      scales:{
+        x:{ stacked:true, grid:{ display:false }, ticks:{ font:{ size:10.5 } } },
+        y:{ stacked:true, title:{ display:true, text:'백만원' }, ticks:{ font:{ size:10.5 } } }
+      }
+    }
+  });
+  /* 부문별 당월 */
+  const segVals = SEGS.map(s => state.rows.filter(r=>r.month===m.cur.key && r.seg===s).reduce((a,r)=>a+total(r),0));
+  const extra = [...new Set(state.rows.filter(r=>r.month===m.cur.key && !SEGS.includes(r.seg)).map(r=>r.seg))];
+  const labels = SEGS.concat(extra), vals = segVals.concat(extra.map(s=>state.rows.filter(r=>r.month===m.cur.key&&r.seg===s).reduce((a,r)=>a+total(r),0)));
+  $('#segMonthLabel').textContent = (m.cur.key || '') + ' · 단위 백만원';
+  chart.mk('chSeg', {
+    type:'bar',
+    data:{ labels, datasets:[{ data:vals.map(v=>Math.round(v/100)), backgroundColor:C.BRAND,
+      borderRadius:{ topRight:3, bottomRight:3 }, barPercentage:.6 }] },
+    options:{
+      indexAxis:'y', responsive:true, maintainAspectRatio:false,
+      layout:{ padding:{ right:34 } },
+      plugins:{ legend:{ display:false }, datalabels: chart.dl.end,
+        tooltip:{ callbacks:{ label(ctx){ return ' ' + fmt(ctx.parsed.x) + '백만'; } } } },
+      scales:{ x:{ display:false, suggestedMax: Math.max(1,...vals.map(v=>v/100))*1.15 }, y:{ grid:{ display:false }, ticks:{ font:{ size:11 } } } }
+    }
+  });
+  /* 당월 구성 도넛 — 스택 차트와 동일한 항목→색 매핑 유지 */
+  const comp = [
+    ['기본급+제수당', m.cur.base, C.CAT[0]], ['연장수당', m.cur.ot, C.CAT[1]],
+    ['상여·성과', m.cur.bonus, C.CAT[2]], ['법정부담', m.cur.legal, C.CAT[3]]
+  ].filter(x => x[1] > 0);
+  chart.mk('chComp', {
+    type:'doughnut',
+    data:{ labels: comp.map(x=>x[0]), datasets:[{ data: comp.map(x=>Math.round(x[1]/100)),
+      backgroundColor: comp.map(x=>x[2]), borderWidth:2, borderColor:'#fff' }] },
+    options: chart.doughnutOpts(eok(m.cur.total), '당월 총액', '백만')
+  });
+}
+function renderTable(){
+  const fm = $('#fMonth').value, fs = $('#fSeg').value;
+  let rows = state.rows.slice().sort((a,b)=> b.month.localeCompare(a.month) || SEGS.indexOf(a.seg)-SEGS.indexOf(b.seg));
+  if (fm) rows = rows.filter(r=>r.month===fm);
+  if (fs) rows = rows.filter(r=>r.seg===fs);
+  $('#rowCount').textContent = '표시 ' + rows.length + '건 / 전체 ' + state.rows.length + '건 · 단위 만원';
+  $('#emptyMsg').hidden = state.rows.length > 0;
+  $('#tbody').innerHTML = rows.map(r =>
+    '<tr><td>'+esc(r.month)+'</td><td><b>'+esc(r.seg)+'</b></td><td class="r">'+fmt(r.hc)+'</td>' +
+    '<td class="r">'+fmt(r.base)+'</td><td class="r">'+fmt(r.allow)+'</td><td class="r">'+fmt(r.ot)+'</td><td class="r">'+fmt(r.bonus)+'</td>' +
+    '<td class="r"><b>'+fmt(gross(r))+'</b></td><td class="r">'+fmt(r.social)+'</td><td class="r">'+fmt(r.sev)+'</td>' +
+    '<td class="r"><b>'+fmt(total(r))+'</b></td>' +
+    '<td><button class="rowbtn" data-act="edit" data-id="'+r.id+'">수정</button> <button class="rowbtn danger" data-act="del" data-id="'+r.id+'">삭제</button></td></tr>'
+  ).join('');
+  const sum = (f) => rows.reduce((s,r)=>s+(+f(r)||0),0);
+  $('#tfoot').innerHTML = '<td colspan="2">합계</td><td class="r">'+fmt(sum(r=>r.hc))+'</td>' +
+    '<td class="r">'+fmt(sum(r=>r.base))+'</td><td class="r">'+fmt(sum(r=>r.allow))+'</td><td class="r">'+fmt(sum(r=>r.ot))+'</td><td class="r">'+fmt(sum(r=>r.bonus))+'</td>' +
+    '<td class="r">'+fmt(sum(gross))+'</td><td class="r">'+fmt(sum(r=>r.social))+'</td><td class="r">'+fmt(sum(r=>r.sev))+'</td><td class="r">'+fmt(sum(total))+'</td><td></td>';
+}
+function renderFilters(){
+  const months = [...new Set(state.rows.map(r=>r.month))].sort().reverse();
+  const cur = $('#fMonth').value;
+  $('#fMonth').innerHTML = '<option value="">월 전체</option>' + months.map(m=>'<option>'+m+'</option>').join('');
+  if (months.includes(cur)) $('#fMonth').value = cur;
+  const segs = SEGS.concat([...new Set(state.rows.map(r=>r.seg).filter(s=>!SEGS.includes(s)))]);
+  const cs = $('#fSeg').value;
+  $('#fSeg').innerHTML = '<option value="">부문 전체</option>' + segs.map(s=>'<option>'+esc(s)+'</option>').join('');
+  if (segs.includes(cs)) $('#fSeg').value = cs;
+}
+function renderAll(){
+  const m = metrics();
+  renderKpis(m); renderBudget(m); renderCharts(m); renderFilters(); renderTable();
+  $('#sampleBanner').hidden = !state.sample;
+}
+
+/* ───── 셸 + 이벤트 ───── */
+KFS.shell({
+  active:'payroll', title:'인건비·보상', sub:'월별 인건비 · 예산 통제 · 구성 분석 (단위: 만원)',
+  actions:[{ id:'btnAdd', label:'월별 등록', primary:true }],
+  sideActions:[
+    { id:'btnUpload', label:'급여 엑셀 업로드' },
+    { id:'btnTemplate', label:'업로드 양식 받기' },
+    { id:'btnExport', label:'집계 다운로드' }
+  ]
+});
+const modal = ui.modal('#overlay');
+$('#segList').innerHTML = SEGS.map(s=>'<option value="'+s+'">').join('');
+
+function openEdit(r){
+  editingId = r ? r.id : null;
+  $('#modalTitle').textContent = r ? '인건비 수정' : '인건비 등록';
+  $('#iMonth').value = r ? r.month : d.mkey(d.today());
+  $('#iSeg').value = r ? r.seg : '';
+  ['Hc','Base','Allow','Ot','Bonus','Social','Sev'].forEach(k => {
+    $('#i'+k).value = r ? (r[k.toLowerCase()] ?? '') : '';
+  });
+  modal.open(); $('#iSeg').focus();
+}
+$('#btnAdd').addEventListener('click', () => openEdit(null));
+$('#btnClose').addEventListener('click', modal.close);
+$('#form').addEventListener('submit', ev => {
+  ev.preventDefault();
+  const base = +$('#iBase').value||0, allow = +$('#iAllow').value||0, ot = +$('#iOt').value||0, bonus = +$('#iBonus').value||0;
+  const g = base+allow+ot+bonus;
+  const rec = {
+    month: $('#iMonth').value, seg: $('#iSeg').value.trim(), hc: +$('#iHc').value||0,
+    base, allow, ot, bonus,
+    social: $('#iSocial').value === '' ? Math.round(g*0.105) : +$('#iSocial').value||0,
+    sev:    $('#iSev').value === ''    ? Math.round(g/12)    : +$('#iSev').value||0
+  };
+  if (!rec.month || !rec.seg) { alert('귀속월과 부문은 필수입니다.'); return; }
+  if (editingId) Object.assign(state.rows.find(r=>r.id===editingId), rec);
+  else { state.rows.push(Object.assign({ id: uid() }, rec)); state.sample = false; }
+  DB.save(state); modal.close(); renderAll();
+});
+$('#tbody').addEventListener('click', ev => {
+  const btn = ev.target.closest('button[data-act]'); if (!btn) return;
+  const r = state.rows.find(x=>x.id===btn.dataset.id); if (!r) return;
+  if (btn.dataset.act === 'edit') openEdit(r);
+  if (btn.dataset.act === 'del' && confirm(r.month + ' ' + r.seg + ' 데이터를 삭제할까요?')) {
+    state.rows = state.rows.filter(x=>x.id!==r.id); DB.save(state); renderAll();
+  }
+});
+['fMonth','fSeg'].forEach(id => $('#'+id).addEventListener('input', renderTable));
+$('#btnBudgetSave').addEventListener('click', () => {
+  state.budget.amount = Math.max(0, +$('#budgetInput').value||0);
+  DB.save(state); renderAll();
+});
+$('#btnClearSample').addEventListener('click', () => {
+  if (!confirm('샘플 데이터를 모두 비울까요?')) return;
+  state.rows = []; state.sample = false; DB.save(state); renderAll();
+});
+
+/* ───── 엑셀 IO ───── */
+const HEADERS = ['귀속월','부문','인원','기본급','제수당','연장수당','상여성과','4대보험','퇴직충당'];
+let fileInput = document.createElement('input'); fileInput.type = 'file'; fileInput.accept = '.xlsx,.xls,.csv';
+$('#btnUpload').addEventListener('click', () => fileInput.click());
+fileInput.addEventListener('change', async ev => {
+  const f = ev.target.files[0]; if (!f) return;
+  try {
+    const rows = await xl.read(f);
+    const list = []; let skipped = 0;
+    rows.forEach(r => {
+      const month = d.norm(xl.pick(r, ['귀속월','월','month'])).slice(0,7);
+      const seg = String(xl.pick(r, ['부문','팀','소속','seg'])).trim();
+      if (!/^\d{4}-\d{2}$/.test(month) || !seg) { skipped++; return; }
+      const base = +xl.pick(r,['기본급','base'])||0, allow = +xl.pick(r,['제수당','수당','allow'])||0,
+            ot = +xl.pick(r,['연장수당','ot'])||0, bonus = +xl.pick(r,['상여성과','상여','성과급','bonus'])||0;
+      const g = base+allow+ot+bonus;
+      list.push({ id: uid(), month, seg, hc:+xl.pick(r,['인원','hc'])||0, base, allow, ot, bonus,
+        social: xl.pick(r,['4대보험','social'])!=='' ? +xl.pick(r,['4대보험','social'])||0 : Math.round(g*0.105),
+        sev:    xl.pick(r,['퇴직충당','sev'])!==''   ? +xl.pick(r,['퇴직충당','sev'])||0   : Math.round(g/12) });
+    });
+    if (!list.length) { alert('불러올 데이터가 없습니다. 귀속월·부문 열을 확인하세요.'); ev.target.value=''; return; }
+    const replace = state.rows.length === 0 ? true :
+      confirm(list.length + '건을 불러왔습니다.\n\n[확인] 기존 데이터 교체  [취소] 추가');
+    state.rows = replace ? list : state.rows.concat(list);
+    state.sample = false; DB.save(state); renderAll();
+    alert('업로드 완료: ' + list.length + '건' + (skipped ? ' / ' + skipped + '행 제외' : ''));
+  } catch (e) { alert('파일을 읽지 못했습니다. .xlsx 형식인지 확인하세요.'); }
+  ev.target.value = '';
+});
+$('#btnTemplate').addEventListener('click', () => {
+  xl.down([
+    { 귀속월:'2026-01', 부문:'연구소', 인원:11, 기본급:4650, 제수당:558, 연장수당:300, 상여성과:0, '4대보험':'', 퇴직충당:'' },
+    { 귀속월:'2026-01', 부문:'경영지원', 인원:3, 기본급:1270, 제수당:152, 연장수당:40, 상여성과:0, '4대보험':'', 퇴직충당:'' }
+  ], { headers: HEADERS, widths:[10,12,6,9,9,9,9,9,9], sheet:'인건비', file:'인건비_업로드양식.xlsx' });
+});
+$('#btnExport').addEventListener('click', () => {
+  if (!state.rows.length) { alert('내보낼 데이터가 없습니다.'); return; }
+  xl.down(state.rows.slice().sort((a,b)=>a.month.localeCompare(b.month)).map(r => ({
+    귀속월:r.month, 부문:r.seg, 인원:r.hc, 기본급:r.base, 제수당:r.allow, 연장수당:r.ot, 상여성과:r.bonus,
+    '4대보험':r.social, 퇴직충당:r.sev, 지급총액:gross(r), 총인건비:total(r)
+  })), { headers: HEADERS.concat(['지급총액','총인건비']), widths:[10,12,6,9,9,9,9,9,9,10,10], sheet:'인건비', file:'인건비집계_' + d.iso(d.today()).replace(/-/g,'') + '.xlsx' });
+});
+
+/* ───── 초기화 ───── */
+if (!state.rows.length && !localStorage.getItem('kfs_payroll_v1')) { seed(); DB.save(state); }
+renderAll();
+</script>
+</body>
+</html>

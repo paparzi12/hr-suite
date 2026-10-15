@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HR Suite 허브</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/static/pretendard.min.css">
+<link rel="stylesheet" href="assets/base.css">
+<style>
+.hub{display:grid;grid-template-columns:repeat(auto-fill,minmax(290px,1fr));gap:14px}
+.card{
+  background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);
+  box-shadow:var(--shadow);padding:18px 20px;display:flex;flex-direction:column;gap:6px;
+  text-decoration:none;color:var(--ink);position:relative;
+}
+a.card:hover{border-color:var(--accent)}
+.card .no{font-size:.78rem;font-weight:800;color:var(--accent-deep)}
+.card h2{font-size:1.02rem;font-weight:800;letter-spacing:-.01em}
+.card p{font-size:.84rem;color:var(--ink2);line-height:1.55;flex:1}
+.card .meta{font-size:.78rem;color:var(--ink3);border-top:1px solid var(--hairline);padding-top:9px;margin-top:4px;display:flex;gap:8px;align-items:center}
+.card .meta b{color:var(--accent-deep)}
+.card.off{background:var(--surface2)}
+.card.off h2{color:var(--ink2)}
+.guide{margin-top:18px}
+.guide ol{margin:6px 0 0 18px;font-size:.88rem;line-height:1.9;color:var(--ink)}
+.guide code{background:var(--surface2);border:1px solid var(--hairline);border-radius:4px;padding:1px 6px;font-size:.82rem}
+</style>
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side"></aside>
+  <div class="mainwrap">
+    <header class="top" id="topbar"></header>
+    <main>
+      <div class="hub" id="hub"></div>
+
+      <div class="panel full guide">
+        <div class="panel-h"><h2>운영 가이드</h2></div>
+        <ol>
+          <li><b>배포</b> — <code>hr-suite</code> 폴더 전체를 GitHub Pages 저장소에 업로드하면 <code>index.html</code>이 허브로 열립니다. 기존 <code>인력현황_대시보드.html</code>을 같은 폴더에 두면 ① 카드에서 바로 연결됩니다.</li>
+          <li><b>대시보드 간 연동</b> — 같은 도메인(브라우저)의 localStorage를 공유합니다. ⑦ 리텐션·⑧ 교육은 ① 인력현황 명부를 자동으로 읽고, ⑩ 경영진 종합은 전 대시보드 지표를 자동 집계합니다.</li>
+          <li><b>데이터 보관</b> — 모든 데이터는 입력한 브라우저에만 저장됩니다(STEP 1). 각 대시보드의 엑셀 다운로드로 주기 백업을 권장하며, STEP 2에서 Firebase 공용 저장소로 전환 예정입니다.</li>
+          <li><b>권한 주의</b> — ③ 인건비·⑥ 성과평가는 민감정보입니다. 공용 PC에서는 사용 후 샘플 비우기/브라우저 데이터 삭제를 권장합니다.</li>
+        </ol>
+      </div>
+    </main>
+  </div>
+</div>
+
+<script src="assets/core.js"></script>
+<script>
+/* ============================================================
+ * index — HR Suite 허브
+ * 각 대시보드의 localStorage 저장 상태(_meta.updated·건수)를 읽어
+ * 카드에 표시한다. 데이터 쓰기는 하지 않는다.
+ * ========================================================== */
+const { $, esc, d, readRaw } = KFS;
+
+const MODS = [
+  { no:'①', name:'인력현황', href:'인력현황_대시보드.html', key:'kfc_headcount_v1',
+    desc:'재직·입퇴사·이직률·충원율 — 전 대시보드의 명부 소스',
+    count: r => Array.isArray(r.employees) ? '명부 ' + r.employees.length + '명' : null },
+  { no:'②', name:'근태·주52시간', href:null, key:null,
+    desc:'기존 근태 캘린더 대시보드에서 별도 운영 (에스원 연동)' },
+  { no:'③', name:'인건비·보상', href:'payroll.html', key:'kfs_payroll_v1',
+    desc:'월별 인건비 · 예산 집행 통제 · 구성 분석',
+    count: r => Array.isArray(r.rows) && r.rows.length ? r.rows.length + '건' : null },
+  { no:'④', name:'채용 파이프라인', href:'recruit.html', key:'kfs_recruit_v1',
+    desc:'포지션·후보 단계 관리 · 퍼널 전환율 · Time-to-Hire',
+    count: r => Array.isArray(r.candidates) && r.candidates.length ? '후보 ' + r.candidates.length + '명' : null },
+  { no:'⑥', name:'성과평가·캘리브레이션', href:'performance.html', key:'kfs_perf_v1',
+    desc:'Z→T점수 표준화 · 상대등급 산출 · 팀 간 편차 보정',
+    count: r => Array.isArray(r.rows) && r.rows.length ? '대상 ' + r.rows.length + '명' : null },
+  { no:'⑦', name:'이직률·리텐션', href:'retention.html', key:'kfs_retention_v1',
+    desc:'Rolling 이직률 · 퇴사 분석 · 이탈 위험군 관리 (① 연동)',
+    count: r => Array.isArray(r.watch) && r.watch.length ? '관리 ' + r.watch.length + '명' : null },
+  { no:'⑧', name:'교육·법정의무교육', href:'training.html', key:'kfs_training_v1',
+    desc:'법정 5종 이수 매트릭스 · 직무교육 시간 (① 연동)',
+    count: r => r.done && Object.keys(r.done).length ? '이수 ' + Object.keys(r.done).length + '건' : null },
+  { no:'⑨', name:'노무 컴플라이언스', href:'compliance.html', key:'kfs_compliance_v1',
+    desc:'근로감독·자체점검 이슈 추적 · 정기 점검 체크리스트',
+    count: r => Array.isArray(r.issues) && r.issues.length ? '이슈 ' + r.issues.length + '건' : null },
+  { no:'⑩', name:'경영진 HR 종합', href:'scorecard.html', key:'kfs_scorecard_v1',
+    desc:'전 대시보드 자동 집계 · 신호등 · 월간 스냅샷 보고',
+    count: r => Array.isArray(r.history) && r.history.length ? '스냅샷 ' + r.history.length + '회' : null }
+];
+
+KFS.shell({ active:'index', title:'HR Suite 허브', sub:'케이퓨얼셀 인사·경영지원 대시보드 모음' });
+
+$('#hub').innerHTML = MODS.map(m => {
+  const raw = m.key ? readRaw(m.key) : null;
+  let meta;
+  if (!m.href) meta = '별도 페이지에서 운영 중';
+  else if (!raw) meta = '데이터 없음 — 열어서 시작하기';
+  else {
+    const cnt = m.count ? m.count(raw) : null;
+    const upd = raw._meta && raw._meta.updated ? raw._meta.updated.slice(0, 10) : null;
+    meta = (cnt ? '<b>' + cnt + '</b>' : '데이터 없음') +
+      (raw.sample ? ' · 샘플' : '') + (upd ? ' · 업데이트 ' + upd : '');
+  }
+  const inner = '<span class="no">' + m.no + '</span><h2>' + esc(m.name) + '</h2>' +
+    '<p>' + esc(m.desc) + '</p><div class="meta">' + meta + '</div>';
+  return m.href
+    ? '<a class="card" href="' + m.href + '">' + inner + '</a>'
+    : '<div class="card off">' + inner + '</div>';
+}).join('');
+</script>
+</body>
+</html>
